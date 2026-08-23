@@ -1,3 +1,8 @@
+v1.2
+  ReadMe: Abschnitt zur Fehlersuche ergaenzt (serial-starter, wandernde
+  ttyUSB-Nummern, zwei Master auf einem Port, Log, Geraeteinstanz)
+  ReadMe: troubleshooting section added
+
 v1.1
   /Mode spiegelt jetzt den Freigabeeingang an Pin 1 (Byte 21, Bit 5)
   Statuswechsel werden im Log im Klartext ausgegeben

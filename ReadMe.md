@@ -126,6 +126,53 @@ V_out   = raw · SpFactor            (0.00125 for INA226, 0.003125 for INA238)
 I_out   = Σ max(0, (raw_k − zero_k) · factor_k)
 ```
 
+### Troubleshooting
+
+**The device does not appear in the GX device list.** Look at the log first:
+
+```bash
+tail -f /var/log/TsBuckBoost/current
+```
+
+`keine Antwort auf die Typabfrage` means something else is holding the port — see
+below. `unbekannte Geraetekennung` means the port was found but a different device
+answered; the driver stops on purpose rather than talking to it.
+
+**Only one master per port.** The converter answers request by request, without
+framing or checksums. If a second process reads the same port at the same time, both
+sides receive shifted garbage: unknown device ids, wrong block lengths, ASCII text in
+the middle of the data, or a block that looks like the previous one moved by a byte or
+two. Before running any manual tool, stop the service and make sure it is gone:
+
+```bash
+svc -d /service/TsBuckBoost
+sleep 3
+pgrep -f dbus-tsbb.py        # must stay empty
+```
+
+Start it again afterwards with `svc -u /service/TsBuckBoost`, restart it with
+`svc -t /service/TsBuckBoost`.
+
+**`ttyUSB` numbers move around.** After a reboot or a re-plug, `ttyUSB1` may well be a
+different device than yesterday. The driver therefore resolves its port through
+`/dev/serial/by-id/` and verifies it with the protocol's type query. Manual scripts
+should do the same:
+
+```bash
+PORT=$(/data/TsBuckBoost/find-port.sh); echo "$PORT"
+```
+
+**The current stays at zero.** That is usually correct: the driver reports current
+only while status bit 0 is set, exactly like TSConfig. The converter starts with a
+delay and only once the input voltage passes its switch-on threshold (setting 57,
+13.3 V by default) — an alternator idling below that will not trigger it. If your
+installation switches a fan through pin 1, that fan is the most reliable indicator of
+when the converter is actually working.
+
+**VRM shows the wrong device instance.** The instance is stored in
+`/Settings/Devices/tsbuckboost/ClassAndVrmInstance` and defaults to `dcdc:40`. If it
+collides with another device, change it there and restart the service.
+
 ### Verified against
 
 Buck-Boost 50 A (id 113 / TS800C5) in a 12 → 24 V installation, checked against a
@@ -261,6 +308,54 @@ V_ein   = roh / 1024 · 2 / 0,0636
 V_aus   = roh · SpFactor            (0,00125 bei INA226, 0,003125 bei INA238)
 I_aus   = Σ max(0, (roh_k − Nullpunkt_k) · Faktor_k)
 ```
+
+### Fehlersuche
+
+**Das Gerät taucht nicht in der GX-Geräteliste auf.** Zuerst ins Log schauen:
+
+```bash
+tail -f /var/log/TsBuckBoost/current
+```
+
+`keine Antwort auf die Typabfrage` heißt, dass jemand anderes den Port hält — siehe
+unten. `unbekannte Geraetekennung` heißt, dass der Port gefunden wurde, dort aber ein
+fremdes Gerät antwortet; der Treiber bricht dann absichtlich ab, statt darauf
+herumzureden.
+
+**Immer nur ein Master auf dem Port.** Der Wandler antwortet Frage für Frage, ohne
+Rahmen und ohne Prüfsumme. Liest ein zweiter Prozess gleichzeitig mit, bekommen beide
+Seiten verschobenen Müll: unbekannte Gerätekennungen, falsche Blocklängen, ASCII-Text
+mitten in den Daten oder ein Block, der wie der vorige aussieht, nur um ein, zwei
+Bytes versetzt. Vor jedem manuellen Werkzeug also den Dienst stoppen und kontrollieren:
+
+```bash
+svc -d /service/TsBuckBoost
+sleep 3
+pgrep -f dbus-tsbb.py        # muss leer bleiben
+```
+
+Danach wieder starten mit `svc -u /service/TsBuckBoost`, neu starten mit
+`svc -t /service/TsBuckBoost`.
+
+**`ttyUSB`-Nummern wandern.** Nach einem Neustart oder Umstecken kann `ttyUSB1` ein
+ganz anderes Gerät sein als gestern. Der Treiber löst seinen Port deshalb über
+`/dev/serial/by-id/` auf und verifiziert ihn über die Typabfrage des Protokolls.
+Manuelle Skripte sollten das genauso halten:
+
+```bash
+PORT=$(/data/TsBuckBoost/find-port.sh); echo "$PORT"
+```
+
+**Der Strom bleibt auf null.** Das ist meistens richtig so: Der Treiber meldet Strom
+nur, solange Statusbit 0 gesetzt ist — genau wie TSConfig. Der Wandler startet
+verzögert und erst, wenn die Eingangsspannung seine Einschaltschwelle übersteigt
+(Einstellung 57, ab Werk 13,3 V). Eine Lichtmaschine, die im Standlauf darunter
+bleibt, löst ihn nicht aus. Wer über Pin 1 einen Lüfter schaltet, hat mit dessen
+Geräusch die zuverlässigste Anzeige dafür, wann der Wandler wirklich arbeitet.
+
+**VRM zeigt die falsche Geräteinstanz.** Sie steht in
+`/Settings/Devices/tsbuckboost/ClassAndVrmInstance` und ist mit `dcdc:40` vorbelegt.
+Bei einer Kollision dort ändern und den Dienst neu starten.
 
 ### Geprüft mit
 
