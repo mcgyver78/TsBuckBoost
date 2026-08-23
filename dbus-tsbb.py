@@ -28,7 +28,7 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.0"
+VERSION = "1.1"
 POLL_MS = 2000
 FALLBACK_INSTANCE = 40
 
@@ -50,6 +50,17 @@ def log(msg):
 
 def signed(v):
     return v - 256 if v > 127 else v
+
+
+# Byte 21 des Live-Blocks. Bit 0 und Bit 5 sind am Geraet verifiziert,
+# Bit 1 und Bit 3 sind aus dem Betriebsverlauf abgeleitet.
+STATUS_BITS = ((0x01, "wandelt"), (0x02, "freigegeben, wartet"),
+               (0x08, "Nachlauf"), (0x20, "ueber Pin 1 gesperrt"))
+
+
+def describe(status):
+    names = [n for bit, n in STATUS_BITS if status & bit]
+    return ", ".join(names) if names else "aus"
 
 
 def find_port():
@@ -133,7 +144,9 @@ class Converter(object):
         b = self._ask(bytes([0xFE, 0xD0]), self.block_len)
         if len(b) != self.block_len:
             return None
-        active = bool(b[21] & 1) if len(b) > 21 else False
+        status = b[21] if len(b) > 21 else 0
+        active = bool(status & 0x01)           # Bit 0: Wandler wandelt
+        blocked = bool(status & 0x20)          # Bit 5: ueber Pin 1 gesperrt
         current = 0.0
         if active:
             for k in range(3):
@@ -148,6 +161,8 @@ class Converter(object):
                 "current": round(current, 2),
                 "power": round(v_out * current, 1),
                 "active": active,
+                "blocked": blocked,
+                "status": status,
                 "t_mosfet": signed(b[20]),
                 "t_board": signed(b[18]),
                 "t_pcb": signed(b[19])}
@@ -170,6 +185,7 @@ def device_instance(bus, name):
 class Driver(object):
     def __init__(self, port):
         self.port = port
+        self.last_status = None
         self.conv = Converter(port)
         bus = dbus.SystemBus()
         instance = device_instance(bus, "tsbuckboost")
@@ -192,7 +208,10 @@ class Driver(object):
         s.add_path("/FirmwareVersion", self.conv.firmware)
         s.add_path("/Serial", "%s-%d" % (self.conv.ctype, self.conv.device_id))
         s.add_path("/Connected", 1)
-        s.add_path("/Mode", 1)                 # 1 = Ein (nicht steuerbar)
+        # /Mode spiegelt den Freigabeeingang an Pin 1 wider: 1 = freigegeben,
+        # 4 = gesperrt. Nur lesbar - der Wandler laesst sich ueber diese
+        # Schnittstelle nicht schalten, nur ueber die Hardware an Pin 1.
+        s.add_path("/Mode", 1)
         s.add_path("/State", 0)                # 0 = Aus, 3 = Bulk
         for p in ("/Dc/0/Voltage", "/Dc/0/Current", "/Dc/0/Power",
                   "/Dc/In/V", "/Dc/0/Temperature"):
@@ -224,6 +243,10 @@ class Driver(object):
         s["/Dc/In/V"] = d["v_in"]
         s["/Dc/0/Temperature"] = d["t_mosfet"]
         s["/State"] = 3 if d["active"] else 0
+        s["/Mode"] = 4 if d["blocked"] else 1
+        if d["status"] != self.last_status:
+            log("Status 0x%02X: %s" % (d["status"], describe(d["status"])))
+            self.last_status = d["status"]
         return True
 
 

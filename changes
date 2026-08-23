@@ -1,4 +1,10 @@
+v1.1
+  /Mode spiegelt jetzt den Freigabeeingang an Pin 1 (Byte 21, Bit 5)
+  Statuswechsel werden im Log im Klartext ausgegeben
+  /Mode now mirrors the remote on/off input on pin 1 (byte 21, bit 5)
+  status changes are logged in plain text
+
 v1.0
-  erste Fassung
+  erste Fassung / first release
   liest Spannungen, Strom, Temperaturen und Aktiv-Zustand
   meldet den Wandler als com.victronenergy.dcdc an
