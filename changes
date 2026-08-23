@@ -1,3 +1,9 @@
+v1.5
+  ReadMe: Hinweis ergaenzt, dass die Alternator-Geraeteseite weder Schalter noch
+  Abschaltgrund anzeigt und wo der Pin-1-Zustand stattdessen abzugreifen ist
+  ReadMe: documented that the alternator device page shows neither switch nor
+  off reason, and where to read the pin 1 state instead
+
 v1.4
   /DeviceOffReason ergaenzt: 0x08 (Remote connector), solange Pin 1 sperrt
   /DeviceOffReason added: 0x08 (remote connector) while pin 1 disables the unit

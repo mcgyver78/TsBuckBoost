@@ -33,6 +33,15 @@ series. Out of the box it can only be configured with the Windows tool *TSConfig
 | `/DeviceOffReason` | 0x08 = remote connector, set while pin 1 disables the unit |
 | `/ProductName`, `/Serial`, `/FirmwareVersion` | Device identification |
 
+> **Note on the GX display:** the alternator device page shows neither an on/off
+> switch nor an off reason — only the dcdc page has those, and dcdc does not appear
+> on the overview. Pin 1 state is therefore published on D-Bus but not rendered by
+> the GUI. Read it through MQTT, the Victron nodes in Node-RED, or directly:
+>
+> ```bash
+> dbus -y com.victronenergy.alternator.tsbb_ttyUSB1 /DeviceOffReason GetValue
+> ```
+
 ### Safety
 
 The driver sends **read commands only** (`FE 11` and `FE D0`). Write commands are
@@ -235,6 +244,16 @@ konfigurieren.
 | `/Mode` | 1 = freigegeben, 4 = über Pin 1 gesperrt (nur lesbar) |
 | `/DeviceOffReason` | 0x08 = Remote connector, gesetzt solange Pin 1 sperrt |
 | `/ProductName`, `/Serial`, `/FirmwareVersion` | Gerätekennung |
+
+> **Hinweis zum GX-Display:** Die Alternator-Geräteseite zeigt weder einen
+> Ein/Aus-Schalter noch einen Abschaltgrund — beides kennt nur die dcdc-Seite, und
+> dcdc taucht dafür nicht in der Übersicht auf. Der Pin-1-Zustand liegt also auf dem
+> D-Bus, wird von der Oberfläche aber nicht dargestellt. Auslesen über MQTT, die
+> Victron-Nodes in Node-RED oder direkt:
+>
+> ```bash
+> dbus -y com.victronenergy.alternator.tsbb_ttyUSB1 /DeviceOffReason GetValue
+> ```
 
 ### Sicherheit
 
