@@ -1,0 +1,14 @@
+#!/bin/sh
+exec 2>&1
+
+# Der serial-starter von Venus OS greift sich jedes neue ttyUSB und probiert
+# VE.Direct und MK2 durch. Fuer unseren Port muss er losgelassen werden,
+# sonst reden zwei Prozesse auf denselben Draht.
+PORT=$(/data/TsBuckBoost/find-port.sh)
+if [ -n "$PORT" ]; then
+    TTY=$(basename "$(readlink -f "$PORT")")
+    [ -x /opt/victronenergy/serial-starter/stop-tty.sh ] && \
+        /opt/victronenergy/serial-starter/stop-tty.sh "$TTY"
+fi
+
+exec /usr/bin/python3 /data/TsBuckBoost/dbus-tsbb.py

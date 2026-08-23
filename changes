@@ -1,0 +1,4 @@
+v1.0
+  erste Fassung
+  liest Spannungen, Strom, Temperaturen und Aktiv-Zustand
+  meldet den Wandler als com.victronenergy.dcdc an
