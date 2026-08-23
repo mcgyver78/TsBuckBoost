@@ -30,6 +30,7 @@ series. Out of the box it can only be configured with the Windows tool *TSConfig
 | `/Dc/0/Temperature` | MOSFET temperature |
 | `/State` | 3 = charging, 0 = off |
 | `/Mode` | 1 = enabled, 4 = disabled through pin 1 (read-only) |
+| `/DeviceOffReason` | 0x08 = remote connector, set while pin 1 disables the unit |
 | `/ProductName`, `/Serial`, `/FirmwareVersion` | Device identification |
 
 ### Safety
@@ -232,6 +233,7 @@ konfigurieren.
 | `/Dc/0/Temperature` | MOSFET-Temperatur |
 | `/State` | 3 = lädt, 0 = aus |
 | `/Mode` | 1 = freigegeben, 4 = über Pin 1 gesperrt (nur lesbar) |
+| `/DeviceOffReason` | 0x08 = Remote connector, gesetzt solange Pin 1 sperrt |
 | `/ProductName`, `/Serial`, `/FirmwareVersion` | Gerätekennung |
 
 ### Sicherheit

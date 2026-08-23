@@ -28,7 +28,7 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.3"
+VERSION = "1.4"
 POLL_MS = 2000
 FALLBACK_INSTANCE = 40
 # systemcalc summiert /Dc/Alternator/Power ausschliesslich ueber
@@ -36,6 +36,9 @@ FALLBACK_INSTANCE = 40
 # grafischen Uebersicht deshalb nicht auf. Victron selbst fuehrt DC-DC-Wandler
 # unter Alternator ("This also includes other DC/DC converters." in dvcc.py).
 SERVICE_CLASS = "alternator"
+# /DeviceOffReason ist eine Bitmaske: warum ist das Ladegeraet aus?
+# 0x08 = Remote connector - genau der Freigabeeingang an Pin 1.
+OFF_REASON_REMOTE_CONNECTOR = 0x08
 
 # Geraetekennungen, Antwort auf FE 11 1F F2 01
 IDS = {54: "TS800", 63: "TS400", 71: "TS800C", 73: "TS200", 82: "TS100",
@@ -230,6 +233,7 @@ class Driver(object):
         # Schnittstelle nicht schalten, nur ueber die Hardware an Pin 1.
         s.add_path("/Mode", 1)
         s.add_path("/State", 0)                # 0 = Aus, 3 = Bulk
+        s.add_path("/DeviceOffReason", 0)      # Bitmaske, 0x08 = Pin 1 sperrt
         for p in ("/Dc/0/Voltage", "/Dc/0/Current", "/Dc/0/Power",
                   "/Dc/In/V", "/Dc/0/Temperature"):
             s.add_path(p, None)
@@ -261,6 +265,7 @@ class Driver(object):
         s["/Dc/0/Temperature"] = d["t_mosfet"]
         s["/State"] = 3 if d["active"] else 0
         s["/Mode"] = 4 if d["blocked"] else 1
+        s["/DeviceOffReason"] = OFF_REASON_REMOTE_CONNECTOR if d["blocked"] else 0
         if d["status"] != self.last_status:
             log("Status 0x%02X: %s" % (d["status"], describe(d["status"])))
             self.last_status = d["status"]
