@@ -1,3 +1,10 @@
+v1.3
+  meldet sich als com.victronenergy.alternator statt dcdc an - nur so erscheint
+  das Geraet in der grafischen Uebersicht neben Solar
+  vorhandene VRM-Instanz wird von dcdc: auf alternator: umgezogen
+  registers as com.victronenergy.alternator instead of dcdc, so the device shows
+  up on the overview page; existing VRM instance is migrated
+
 v1.2
   ReadMe: Abschnitt zur Fehlersuche ergaenzt (serial-starter, wandernde
   ttyUSB-Nummern, zwei Master auf einem Port, Log, Geraeteinstanz)

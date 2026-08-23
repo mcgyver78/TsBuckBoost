@@ -10,8 +10,9 @@ Venus-OS-Treiber für den Victron Buck-Boost DC-DC-Wandler — ganz ohne VE.Dire
 ## English
 
 Publishes a Victron Buck-Boost DC-DC converter (25 A / 50 A / 100 A) on the Venus OS
-D-Bus as `com.victronenergy.dcdc`. The converter then shows up like an Orion XS in
-the GX display, in the VRM portal and in Node-RED's Victron nodes — even though the
+D-Bus as `com.victronenergy.alternator`. The converter then shows up like an Orion XS
+in the GX display — including the overview page next to solar — in the VRM portal and
+in Node-RED's Victron nodes — even though the
 device has neither VE.Direct nor Bluetooth.
 
 The Buck-Boost is not a Victron design. It is an OEM product by
@@ -65,6 +66,27 @@ git clone https://github.com/mcgyver78/TsBuckBoost.git
 
 - Venus OS with Python 3 and `pyserial` (both shipped with Venus OS)
 - The converter connected to the GX device with a USB-A to USB-B cable
+
+### Why alternator and not dcdc
+
+Venus OS has a `com.victronenergy.dcdc` service class, and on paper it fits a
+Buck-Boost perfectly. It does not work for the overview page, though:
+`dbus-systemcalc-py` monitors solarcharger, battery, fuelcell, charger, temperature,
+inverter, multi, acsystem, dcsystem, alternator and dcgenset — but not dcdc. The
+overview tile is fed from `/Dc/Alternator/Power`, which is summed over alternator
+services only, so a dcdc service appears in the device list and nowhere else.
+
+Victron takes the same view internally. From `delegates/dvcc.py`:
+
+```python
+class Alternator(BaseCharger, Networkable):
+    """ This also includes other DC/DC converters. """
+```
+
+DVCC will not try to control this device: it only writes to `/Link/ChargeVoltage`
+and `/Link/ChargeCurrent`, and only when the service actually publishes them. This
+driver does not — which is honest, because the converter cannot be controlled over
+this interface.
 
 ### Serial starter
 
@@ -189,8 +211,9 @@ MIT
 ## Deutsch
 
 Meldet einen Victron Buck-Boost DC-DC-Wandler (25 A / 50 A / 100 A) auf dem D-Bus von
-Venus OS als `com.victronenergy.dcdc` an. Damit erscheint der Wandler wie ein
-Orion XS im GX-Display, im VRM-Portal und in den Victron-Nodes von Node-RED — obwohl
+Venus OS als `com.victronenergy.alternator` an. Damit erscheint der Wandler wie ein
+Orion XS im GX-Display — auch in der grafischen Übersicht neben Solar —, im
+VRM-Portal und in den Victron-Nodes von Node-RED, obwohl
 das Gerät weder VE.Direct noch Bluetooth besitzt.
 
 Der Buck-Boost ist kein Victron-Eigenentwurf, sondern ein OEM-Gerät von
@@ -246,6 +269,28 @@ git clone https://github.com/mcgyver78/TsBuckBoost.git
 
 - Venus OS mit Python 3 und `pyserial` (beides in Venus OS enthalten)
 - Der Wandler hängt per USB-A-auf-USB-B-Kabel am GX-Gerät
+
+### Warum alternator und nicht dcdc
+
+Venus OS kennt die Dienstklasse `com.victronenergy.dcdc`, und auf dem Papier passt
+sie perfekt auf einen Buck-Boost. Für die grafische Übersicht taugt sie aber nicht:
+`dbus-systemcalc-py` überwacht solarcharger, battery, fuelcell, charger, temperature,
+inverter, multi, acsystem, dcsystem, alternator und dcgenset — dcdc steht nicht auf
+der Liste. Die Kachel in der Übersicht speist sich aus `/Dc/Alternator/Power`, und
+das wird ausschließlich über Alternator-Dienste summiert. Ein dcdc-Dienst erscheint
+deshalb in der Geräteliste und sonst nirgends.
+
+Victron sieht das intern genauso. Aus `delegates/dvcc.py`:
+
+```python
+class Alternator(BaseCharger, Networkable):
+    """ This also includes other DC/DC converters. """
+```
+
+DVCC versucht nicht, dieses Gerät zu steuern: Geschrieben wird nur nach
+`/Link/ChargeVoltage` und `/Link/ChargeCurrent`, und auch das nur, wenn der Dienst
+diese Pfade veröffentlicht. Dieser Treiber tut es nicht — was ehrlich ist, denn über
+diese Schnittstelle lässt sich der Wandler nicht steuern.
 
 ### Serial-Starter
 

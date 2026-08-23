@@ -28,9 +28,14 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.1"
+VERSION = "1.3"
 POLL_MS = 2000
 FALLBACK_INSTANCE = 40
+# systemcalc summiert /Dc/Alternator/Power ausschliesslich ueber
+# com.victronenergy.alternator - com.victronenergy.dcdc taucht in der
+# grafischen Uebersicht deshalb nicht auf. Victron selbst fuehrt DC-DC-Wandler
+# unter Alternator ("This also includes other DC/DC converters." in dvcc.py).
+SERVICE_CLASS = "alternator"
 
 # Geraetekennungen, Antwort auf FE 11 1F F2 01
 IDS = {54: "TS800", 63: "TS400", 71: "TS800C", 73: "TS200", 82: "TS100",
@@ -169,14 +174,26 @@ class Converter(object):
 
 
 def device_instance(bus, name):
-    """VRM-Instanz ueber die Venus-Settings holen, damit sie stabil bleibt."""
+    """VRM-Instanz ueber die Venus-Settings holen, damit sie stabil bleibt.
+
+    Aeltere Fassungen dieses Treibers haben sich als dcdc angemeldet. Steht in
+    den Settings noch die alte Klasse, wird sie hier auf alternator umgezogen -
+    sonst ordnet VRM das Geraet weiter der alten Klasse zu.
+    """
+    default = "%s:%d" % (SERVICE_CLASS, FALLBACK_INSTANCE)
     try:
         from settingsdevice import SettingsDevice
         s = SettingsDevice(bus, {
             "instance": ["/Settings/Devices/%s/ClassAndVrmInstance" % name,
-                         "dcdc:%d" % FALLBACK_INSTANCE, 0, 0]},
+                         default, 0, 0]},
             eventCallback=None, timeout=10)
-        return int(str(s["instance"]).split(":")[1])
+        stored = str(s["instance"])
+        cls, _, num = stored.partition(":")
+        instance = int(num) if num.isdigit() else FALLBACK_INSTANCE
+        if cls != SERVICE_CLASS:
+            log("Geraeteklasse %s -> %s umgestellt" % (cls, SERVICE_CLASS))
+            s["instance"] = "%s:%d" % (SERVICE_CLASS, instance)
+        return instance
     except Exception as e:
         log("Settings nicht verfuegbar (%s), nutze Instanz %d" % (e, FALLBACK_INSTANCE))
         return FALLBACK_INSTANCE
@@ -189,8 +206,8 @@ class Driver(object):
         self.conv = Converter(port)
         bus = dbus.SystemBus()
         instance = device_instance(bus, "tsbuckboost")
-        svcname = "com.victronenergy.dcdc.tsbb_%s" % os.path.basename(
-            os.path.realpath(port))
+        svcname = "com.victronenergy.%s.tsbb_%s" % (
+            SERVICE_CLASS, os.path.basename(os.path.realpath(port)))
         try:
             self.svc = VeDbusService(svcname, bus=bus, register=False)
             deferred = True
