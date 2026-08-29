@@ -1,3 +1,9 @@
+v1.8
+  optionale Einzelanzeige der Temperaturen als eigene Venus-Geraete, per
+  Settings-Schalter SeparateTempSensors, standardmaessig aus; der CAN-Sensor
+  wird nur angelegt, wenn wirklich einer antwortet
+  optional separate temperature devices, switched via the settings tree
+
 v1.7
   /History/EnergyOut: Energiezaehler in kWh, alle 5 Minuten in den Settings
   gesichert, ueberlebt Neustarts - fuellt die History-Seite

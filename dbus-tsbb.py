@@ -28,7 +28,7 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.7"
+VERSION = "1.8"
 POLL_MS = 2000
 FALLBACK_INSTANCE = 40
 # systemcalc summiert /Dc/Alternator/Power ausschliesslich ueber
@@ -49,6 +49,14 @@ TEMP_ALARM = 85
 TEMP_HYSTERESIS = 5
 # Energiezaehler nur alle paar Minuten in die Settings schreiben
 ENERGY_SAVE_INTERVAL = 300
+# Optionale Einzelanzeige der Temperaturen als eigene Venus-Geraete.
+# Standard aus; einschalten mit
+#   dbus -y com.victronenergy.settings \
+#        /Settings/Devices/tsbuckboost/SeparateTempSensors SetValue 1
+TEMP_SENSORS = (("Board", "t_board", "Board", 41),
+                ("Mosfet1", "t_mosfet1", "MOSFET 1", 42),
+                ("Mosfet2", "t_mosfet2", "MOSFET 2", 43),
+                ("CanSensor", "t_can", "CAN sensor", 44))
 
 # Geraetekennungen, Antwort auf FE 11 1F F2 01
 IDS = {54: "TS800", 63: "TS400", 71: "TS800C", 73: "TS200", 82: "TS100",
@@ -204,7 +212,8 @@ def open_settings(bus, name):
     return SettingsDevice(bus, {
         "instance": ["/Settings/Devices/%s/ClassAndVrmInstance" % name,
                      "%s:%d" % (SERVICE_CLASS, FALLBACK_INSTANCE), 0, 0],
-        "energy": ["/Settings/Devices/%s/EnergyOut" % name, 0.0, 0, 0]},
+        "energy": ["/Settings/Devices/%s/EnergyOut" % name, 0.0, 0, 0],
+        "septemp": ["/Settings/Devices/%s/SeparateTempSensors" % name, 0, 0, 1]},
         eventCallback=None, timeout=10)
 
 
@@ -288,6 +297,56 @@ class Driver(object):
             s.register()
         log("angemeldet als %s, Instanz %d" % (svcname, instance))
 
+        self.temp_services = {}
+        if self._separate_sensors():
+            first = None
+            try:
+                first = self.conv.read()
+            except Exception:
+                pass
+            for key, field, label, inst in TEMP_SENSORS:
+                # den CAN-Sensor nur anlegen, wenn wirklich einer antwortet
+                if key == "CanSensor" and (first is None or first.get("t_can") is None):
+                    continue
+                try:
+                    self.temp_services[key] = self._temp_service(bus, key, label, inst)
+                except Exception as e:
+                    log("Temperaturgeraet %s nicht angelegt: %s" % (key, e))
+            if self.temp_services:
+                log("zusaetzliche Temperaturgeraete: %s"
+                    % ", ".join(sorted(self.temp_services)))
+
+    def _separate_sensors(self):
+        if self.settings is None:
+            return False
+        try:
+            return int(self.settings["septemp"]) == 1
+        except Exception:
+            return False
+
+    def _temp_service(self, bus, key, label, instance):
+        name = "com.victronenergy.temperature.tsbb_%s" % key.lower()
+        try:
+            svc = VeDbusService(name, bus=bus, register=False)
+            deferred = True
+        except TypeError:
+            svc = VeDbusService(name, bus=bus)
+            deferred = False
+        svc.add_path("/Mgmt/ProcessName", os.path.basename(__file__))
+        svc.add_path("/Mgmt/ProcessVersion", VERSION)
+        svc.add_path("/Mgmt/Connection", self.port)
+        svc.add_path("/DeviceInstance", instance)
+        svc.add_path("/ProductId", 0xFFFF)
+        svc.add_path("/ProductName", "Buck-Boost %s" % label)
+        svc.add_path("/CustomName", "Buck-Boost %s" % label)
+        svc.add_path("/Connected", 1)
+        svc.add_path("/TemperatureType", 2)    # 2 = generisch
+        svc.add_path("/Status", 0)             # 0 = ok, 1 = nicht verbunden
+        svc.add_path("/Temperature", None)
+        if deferred:
+            svc.register()
+        return svc
+
     def update(self):
         try:
             d = self.conv.read()
@@ -342,6 +401,15 @@ class Driver(object):
         elif self.temp_alarm == 2 and hottest < TEMP_ALARM - TEMP_HYSTERESIS:
             self.temp_alarm = 1
         s["/Alarms/HighTemperature"] = self.temp_alarm
+
+        for key, field, _label, _inst in TEMP_SENSORS:
+            svc = self.temp_services.get(key)
+            if svc is None:
+                continue
+            value = d.get(field)
+            svc["/Temperature"] = value
+            svc["/Status"] = 0 if value is not None else 1
+            svc["/Connected"] = 1 if value is not None else 0
 
         s["/StatusByte"] = d["status"]
         s["/Status/Converting"] = 1 if d["active"] else 0

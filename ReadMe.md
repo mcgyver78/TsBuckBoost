@@ -122,6 +122,32 @@ converter starts reducing current on its own, so the alarm fires before the devi
 throttles rather than after. Voltage alarms are deliberately not published — sensible
 thresholds depend on the battery chemistry, and wrong ones only produce noise in VRM.
 
+### Optional: temperatures as separate devices
+
+The alternator device page renders exactly one temperature row. If you want to see
+the individual sensors in the GX display, the driver can register them as proper
+Venus temperature devices — with their own name, history in VRM and alarm settings.
+This is **off by default**, because it adds entries to the device list.
+
+```bash
+# on
+dbus -y com.victronenergy.settings \
+     /Settings/Devices/tsbuckboost/SeparateTempSensors SetValue 1
+svc -t /service/TsBuckBoost
+
+# off
+dbus -y com.victronenergy.settings \
+     /Settings/Devices/tsbuckboost/SeparateTempSensors SetValue 0
+svc -t /service/TsBuckBoost
+```
+
+You then get *Buck-Boost Board*, *Buck-Boost MOSFET 1* and *Buck-Boost MOSFET 2*,
+plus *Buck-Boost CAN sensor* if a TS Temp sensor is actually connected — the driver
+skips that one when the converter reports “no signal”.
+
+The switch lives in the settings tree, not in a GX menu, so it survives package
+updates. Editing the driver file instead would not: the next install replaces it.
+
 ### Serial starter
 
 Venus OS attaches a service to every newly detected `ttyUSB` and probes it for
@@ -365,6 +391,33 @@ ab 75 °C, Alarm ab 85 °C, Rückfall mit 5 K Hysterese. Bei 85 °C beginnt der 
 selbst, den Strom zu begrenzen — der Alarm kommt also, bevor das Gerät abregelt, nicht
 danach. Spannungsalarme gibt es bewusst nicht: Sinnvolle Schwellen hängen an der
 Batteriechemie, und falsch gesetzte erzeugen nur Lärm im VRM.
+
+### Optional: Temperaturen als eigene Geräte
+
+Die Alternator-Geräteseite zeichnet genau eine Temperaturzeile. Wer die einzelnen
+Sensoren im GX-Display sehen will, kann sie vom Treiber als vollwertige
+Venus-Temperaturgeräte anmelden lassen — mit eigenem Namen, Verlauf in VRM und
+Alarmschwellen. Standardmäßig ist das **aus**, weil es die Geräteliste verlängert.
+
+```bash
+# ein
+dbus -y com.victronenergy.settings \
+     /Settings/Devices/tsbuckboost/SeparateTempSensors SetValue 1
+svc -t /service/TsBuckBoost
+
+# aus
+dbus -y com.victronenergy.settings \
+     /Settings/Devices/tsbuckboost/SeparateTempSensors SetValue 0
+svc -t /service/TsBuckBoost
+```
+
+Dann erscheinen *Buck-Boost Board*, *Buck-Boost MOSFET 1* und *Buck-Boost MOSFET 2*,
+dazu *Buck-Boost CAN sensor*, falls tatsächlich ein TS-Temp-Sensor angeschlossen ist —
+meldet der Wandler „no signal“, legt der Treiber dieses Gerät gar nicht erst an.
+
+Der Schalter liegt im Settings-Baum, nicht in einem GX-Menü, und überlebt damit
+Paket-Updates. Eine Änderung in der Treiberdatei täte das nicht: Die nächste
+Installation ersetzt sie.
 
 ### Serial-Starter
 
