@@ -148,6 +148,16 @@ skips that one when the converter reports “no signal”.
 The switch lives in the settings tree, not in a GX menu, so it survives package
 updates. Editing the driver file instead would not: the next install replaces it.
 
+**Without the console.** `extras/nodered-separate-temp-sensors.json` is a small
+Node-RED flow that does the same thing: import it through the Node-RED menu
+(*Import → clipboard*), then click *Einzelsensoren EIN* or *AUS*. The `exec` node
+runs the command on the GX device and restarts the driver.
+
+The flow is deliberately split: the trigger is separate from the action, so anything
+can drive it — the two inject nodes, a dashboard switch, or a virtual switch you
+created on the GX display. Feed the action a `1`/`0`, `true`/`false` or `on`/`off`
+and it does the rest.
+
 ### Serial starter
 
 Venus OS attaches a service to every newly detected `ttyUSB` and probes it for
@@ -418,6 +428,16 @@ meldet der Wandler „no signal“, legt der Treiber dieses Gerät gar nicht ers
 Der Schalter liegt im Settings-Baum, nicht in einem GX-Menü, und überlebt damit
 Paket-Updates. Eine Änderung in der Treiberdatei täte das nicht: Die nächste
 Installation ersetzt sie.
+
+**Ohne Konsole.** `extras/nodered-separate-temp-sensors.json` ist ein kleiner
+Node-RED-Flow, der dasselbe erledigt: über das Node-RED-Menü importieren
+(*Import → Zwischenablage*), dann auf *Einzelsensoren EIN* oder *AUS* klicken. Der
+`exec`-Node setzt den Wert auf dem GX-Gerät und startet den Treiber neu.
+
+Der Flow ist bewusst getrennt aufgebaut: Auslöser und Aktion sind zwei Dinge, damit
+beliebiges davorhängen kann — die beiden Inject-Nodes, ein Dashboard-Schalter oder
+ein virtueller Schalter, den du dir auf dem GX-Display angelegt hast. Die Aktion
+versteht `1`/`0`, `true`/`false` und `on`/`off`.
 
 ### Serial-Starter
 

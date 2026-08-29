@@ -1,3 +1,9 @@
+v1.9
+  Node-RED-Flow unter extras/ zum Umschalten der Temperaturgeraete ohne Konsole;
+  Ausloeser und Aktion getrennt, damit ein virtueller Schalter auf dem GX-Display
+  oder ein Dashboard-Element davorhaengen kann
+  Node-RED flow added to toggle the separate temperature devices without a console
+
 v1.8
   optionale Einzelanzeige der Temperaturen als eigene Venus-Geraete, per
   Settings-Schalter SeparateTempSensors, standardmaessig aus; der CAN-Sensor
