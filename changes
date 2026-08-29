@@ -1,3 +1,9 @@
+v1.10
+  Node-RED-Flow korrigiert: der virtuelle Schalter wirkt jetzt auf den
+  Settings-Wert SeparateTempSensors statt auf den Geraetepfad /Mode - /Mode ist
+  der Pin-1-Spiegel und wird vom Treiber laufend selbst gesetzt
+  Node-RED flow fixed: the virtual switch now writes the settings value
+
 v1.9
   Node-RED-Flow unter extras/ zum Umschalten der Temperaturgeraete ohne Konsole;
   Ausloeser und Aktion getrennt, damit ein virtueller Schalter auf dem GX-Display

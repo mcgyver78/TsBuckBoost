@@ -4,23 +4,44 @@
         "type": "tab",
         "label": "TsBuckBoost",
         "disabled": false,
-        "info": "Schaltet die Einzelanzeige der Buck-Boost-Temperaturen als eigene\nVenus-Geraete ein und aus.\n\nDer exec-Node setzt den Settings-Wert und startet den Treiber neu.\nWas ihn ausloest, ist austauschbar: die beiden Inject-Nodes, ein\nDashboard-Schalter oder ein virtueller Schalter auf dem GX-Display.\n\nSwitches the individual Buck-Boost temperatures on or off as separate\nVenus devices. Trigger the exec node from anything you like."
+        "info": "Schaltet die Einzelanzeige der Buck-Boost-Temperaturen als eigene\nVenus-Geraete ein und aus.\n\nWICHTIG: Geschaltet wird der Settings-Wert\n/Settings/Devices/tsbuckboost/SeparateTempSensors auf\ncom.victronenergy.settings - NICHT der Pfad /Mode des Wandlers.\n/Mode ist der Pin-1-Spiegel und wird vom Treiber laufend selbst gesetzt.\n\nDer virtuelle Schalter erscheint auf dem GX-Display. Wer ihn nicht will,\nnimmt stattdessen die beiden Inject-Nodes.\n\nSwitches the individual Buck-Boost temperatures on or off as separate\nVenus devices, by writing the settings value - not the device path."
     },
     {
         "id": "tsbb_note",
         "type": "comment",
         "z": "tsbb_tab",
-        "name": "TsBuckBoost: Temperaturen als eigene Geraete",
-        "info": "Setting: /Settings/Devices/tsbuckboost/SeparateTempSensors\n1 = ein, 0 = aus. Der Wert ueberlebt Neustarts und Paket-Updates.",
-        "x": 250,
+        "name": "TsBuckBoost: Temperaturen als eigene Geraete anzeigen",
+        "info": "Setting: /Settings/Devices/tsbuckboost/SeparateTempSensors\n1 = ein, 0 = aus. Der Wert ueberlebt Neustarts und Paket-Updates.\nNach dem Umschalten startet der exec-Node den Treiber neu.",
+        "x": 320,
         "y": 60,
         "wires": []
+    },
+    {
+        "id": "tsbb_vswitch",
+        "type": "victron-virtual-switch",
+        "z": "tsbb_tab",
+        "name": "Buck-Boost Zusatzsensoren",
+        "outputs": 2,
+        "switch_1_type": 1,
+        "switch_1_initial": 0,
+        "switch_1_label": "",
+        "switch_1_customname": "Buck-Boost additional sensors",
+        "switch_1_group": "TS_BuckBoost",
+        "switch_1_include_measurement": false,
+        "switch_1_rgb_color_wheel": false,
+        "switch_1_cct_wheel": false,
+        "switch_1_rgb_white_dimmer": false,
+        "switch_1_show_ui_input": 1,
+        "switch_1_passthrough_mode": "auto_only",
+        "x": 200,
+        "y": 160,
+        "wires": [[], ["tsbb_cmd"]]
     },
     {
         "id": "tsbb_on",
         "type": "inject",
         "z": "tsbb_tab",
-        "name": "Einzelsensoren EIN",
+        "name": "manuell EIN",
         "props": [{ "p": "payload" }],
         "repeat": "",
         "crontab": "",
@@ -28,15 +49,15 @@
         "topic": "",
         "payload": "1",
         "payloadType": "num",
-        "x": 170,
-        "y": 140,
+        "x": 200,
+        "y": 240,
         "wires": [["tsbb_cmd"]]
     },
     {
         "id": "tsbb_off",
         "type": "inject",
         "z": "tsbb_tab",
-        "name": "Einzelsensoren AUS",
+        "name": "manuell AUS",
         "props": [{ "p": "payload" }],
         "repeat": "",
         "crontab": "",
@@ -44,24 +65,24 @@
         "topic": "",
         "payload": "0",
         "payloadType": "num",
-        "x": 170,
-        "y": 200,
+        "x": 200,
+        "y": 300,
         "wires": [["tsbb_cmd"]]
     },
     {
         "id": "tsbb_cmd",
         "type": "function",
         "z": "tsbb_tab",
-        "name": "Befehl bauen",
-        "func": "// Akzeptiert 1/0, true/false oder \"on\"/\"off\" als Eingang.\nvar p = msg.payload;\nvar on = (p === 1 || p === true || p === '1' || p === 'on' || p === 'ein');\nvar value = on ? 1 : 0;\n\nmsg.payload = 'dbus -y com.victronenergy.settings'\n    + ' /Settings/Devices/tsbuckboost/SeparateTempSensors SetValue ' + value\n    + ' && svc -t /service/TsBuckBoost';\nmsg.tsbbValue = value;\nreturn msg;",
+        "name": "Settings-Befehl bauen",
+        "func": "// Nimmt 1/0, true/false, \"on\"/\"off\" oder ein Objekt mit .state entgegen -\n// je nachdem, was der virtuelle Schalter liefert.\nvar p = msg.payload;\nif (p !== null && typeof p === 'object') {\n    p = (p.state !== undefined) ? p.state : p.value;\n}\nvar on = (p === 1 || p === true || p === '1' || p === 'on' || p === 'ein');\nvar value = on ? 1 : 0;\n\n// Der Settings-Wert, nicht der Geraetepfad /Mode!\nmsg.payload = 'dbus -y com.victronenergy.settings'\n    + ' /Settings/Devices/tsbuckboost/SeparateTempSensors SetValue ' + value\n    + ' && svc -t /service/TsBuckBoost';\nmsg.tsbbValue = value;\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 430,
-        "y": 170,
+        "x": 500,
+        "y": 200,
         "wires": [["tsbb_exec"]]
     },
     {
@@ -76,9 +97,9 @@
         "winHide": false,
         "oldrc": false,
         "name": "auf dem GX ausfuehren",
-        "x": 650,
-        "y": 170,
-        "wires": [["tsbb_status"], [], []]
+        "x": 760,
+        "y": 200,
+        "wires": [["tsbb_status"], ["tsbb_status"], []]
     },
     {
         "id": "tsbb_status",
@@ -92,8 +113,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 880,
-        "y": 170,
+        "x": 1010,
+        "y": 200,
         "wires": [["tsbb_debug"]]
     },
     {
@@ -109,8 +130,8 @@
         "targetType": "msg",
         "statusVal": "payload",
         "statusType": "auto",
-        "x": 1080,
-        "y": 170,
+        "x": 1210,
+        "y": 200,
         "wires": []
     }
 ]
