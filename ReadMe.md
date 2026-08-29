@@ -51,6 +51,28 @@ series. Out of the box it can only be configured with the Windows tool *TSConfig
 > dbus -y com.victronenergy.alternator.tsbb_ttyUSB1 /DeviceOffReason GetValue
 > ```
 
+### Naming in Node-RED
+
+The Victron nodes for Node-RED label every path from a fixed list of their own
+(`services.json` in `node-red-contrib-victron`), written for real alternators. Two
+labels therefore read oddly for a DC-DC converter, and a driver cannot change them:
+
+| Path | Node-RED calls it | What it really is |
+|---|---|---|
+| `/Dc/0/Temperature` | *Battery temperature 0 (°C)* | hottest MOSFET of the converter |
+| `/Dc/1/Voltage` | *Battery voltage 1 (V)* | input voltage, shown as *Aux voltage* on the GX |
+
+Both values exist under a second, correctly named path — use those instead:
+
+- input voltage: `/Dc/In/V`, listed as *Input voltage (before DC/DC converter)*
+- temperatures: switch on the separate temperature devices (below). They appear as
+  their own Victron *Temperature* nodes named *Buck-Boost Board*,
+  *Buck-Boost MOSFET 1*, *Buck-Boost MOSFET 2* and *Buck-Boost CAN sensor*, where
+  the measurement is simply called *Temperature*.
+
+`/Dc/0/Temperature` is kept because it is the only temperature the GX device page
+draws — there it is labelled *Temperature*, which is accurate.
+
 ### Safety
 
 The driver sends **read commands only** (`FE 11` and `FE D0`). Write commands are
@@ -334,6 +356,30 @@ konfigurieren.
 > ```bash
 > dbus -y com.victronenergy.alternator.tsbb_ttyUSB1 /DeviceOffReason GetValue
 > ```
+
+### Benennung in Node-RED
+
+Die Victron-Nodes für Node-RED beschriften jeden Pfad aus einer eigenen, festen
+Liste (`services.json` in `node-red-contrib-victron`), geschrieben für echte
+Lichtmaschinen. Zwei Beschriftungen lesen sich für einen DC-DC-Wandler deshalb
+schief, und ein Treiber kann daran nichts ändern:
+
+| Pfad | Node-RED nennt ihn | Was es wirklich ist |
+|---|---|---|
+| `/Dc/0/Temperature` | *Battery temperature 0 (°C)* | heißester MOSFET des Wandlers |
+| `/Dc/1/Voltage` | *Battery voltage 1 (V)* | Eingangsspannung, im GX als *Aux voltage* |
+
+Beide Werte gibt es unter einem zweiten, korrekt benannten Pfad — nimm die:
+
+- Eingangsspannung: `/Dc/In/V`, in der Liste als *Input voltage (before DC/DC
+  converter)*
+- Temperaturen: die separaten Temperaturgeräte einschalten (siehe unten). Sie
+  erscheinen als eigene Victron-*Temperature*-Nodes namens *Buck-Boost Board*,
+  *Buck-Boost MOSFET 1*, *Buck-Boost MOSFET 2* und *Buck-Boost CAN sensor*, dort
+  heißt der Messwert schlicht *Temperature*.
+
+`/Dc/0/Temperature` bleibt trotzdem bestehen, weil es die einzige Temperatur ist,
+die die GX-Geräteseite zeichnet — dort steht *Temperature*, und das stimmt.
 
 ### Sicherheit
 

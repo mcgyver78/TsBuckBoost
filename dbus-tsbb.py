@@ -29,7 +29,7 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.12"
+VERSION = "1.13"
 POLL_MS = 2000
 FALLBACK_INSTANCE = 40
 # systemcalc sums /Dc/Alternator/Power over com.victronenergy.alternator only —
@@ -399,7 +399,15 @@ class Driver(object):
         s["/Dc/0/Power"] = d["power"]
         s["/Dc/In/V"] = d["v_in"]
         s["/Dc/1/Voltage"] = d["v_in"]
-        s["/Dc/0/Temperature"] = d["t_mosfet2"]
+        # The alternator class has no path for the converter's own temperature.
+        # /Dc/0/Temperature is the only temperature the GX device page renders,
+        # so it carries the hotter of the two MOSFETs - the same number the
+        # alarm below reacts to. The Victron Node-RED nodes label this path
+        # "Battery temperature 0"; that text lives in their services.json and
+        # cannot be changed from here. Use the separate temperature devices
+        # for correctly named values in Node-RED.
+        hottest = max(d["t_mosfet1"], d["t_mosfet2"])
+        s["/Dc/0/Temperature"] = hottest
         s["/Temperature/Board"] = d["t_board"]
         s["/Temperature/Mosfet1"] = d["t_mosfet1"]
         s["/Temperature/Mosfet2"] = d["t_mosfet2"]
@@ -421,7 +429,6 @@ class Driver(object):
                 except Exception as e:
                     log("energy counter not stored: %s" % e)
 
-        hottest = max(d["t_mosfet1"], d["t_mosfet2"])
         if hottest >= TEMP_ALARM:
             self.temp_alarm = 2
         elif hottest >= TEMP_WARNING:

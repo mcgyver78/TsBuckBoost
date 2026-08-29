@@ -1,3 +1,11 @@
+v1.13
+  /Dc/0/Temperature now carries the hotter of the two MOSFETs instead of MOSFET 2
+  alone - the device page, the alarm and the ReadMe now refer to the same number
+  ReadMe (de/en): new section on naming in Node-RED. The Victron nodes label
+  /Dc/0/Temperature "Battery temperature 0" and /Dc/1/Voltage "Battery voltage 1"
+  from their own fixed list; the section names the correctly labelled paths to
+  use instead (/Dc/In/V, and the separate temperature devices)
+
 v1.12
   everything in the package is English now: log messages, comments in the driver,
   and the node names, comments and status texts of the Node-RED flow in extras/
