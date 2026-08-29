@@ -150,13 +150,19 @@ updates. Editing the driver file instead would not: the next install replaces it
 
 **Without the console.** `extras/nodered-separate-temp-sensors.json` is a small
 Node-RED flow that does the same thing: import it through the Node-RED menu
-(*Import → clipboard*), then click *Einzelsensoren EIN* or *AUS*. The `exec` node
-runs the command on the GX device and restarts the driver.
+(*Import → clipboard*), then click *manual ON* or *manual OFF*. The `exec` node runs
+the command on the GX device and restarts the driver; the debug node reports back
+whether it worked.
 
-The flow is deliberately split: the trigger is separate from the action, so anything
-can drive it — the two inject nodes, a dashboard switch, or a virtual switch you
-created on the GX display. Feed the action a `1`/`0`, `true`/`false` or `on`/`off`
-and it does the rest.
+The flow also ships a `victron-virtual-switch` named *Buck-Boost additional sensors*,
+which puts a real switch on the GX display — that is the point of the flow for anyone
+who never opens a console. The trigger is kept separate from the action, so anything
+else can drive it too: the two inject nodes, a dashboard switch, or your own logic.
+The action understands `1`/`0`, `true`/`false` and `on`/`off`.
+
+Requirements for the flow: the Victron Node-RED nodes (for the virtual switch) and a
+Node-RED instance allowed to run commands on the GX device — the built-in Node-RED
+of Venus OS is.
 
 ### Serial starter
 
@@ -431,13 +437,23 @@ Installation ersetzt sie.
 
 **Ohne Konsole.** `extras/nodered-separate-temp-sensors.json` ist ein kleiner
 Node-RED-Flow, der dasselbe erledigt: über das Node-RED-Menü importieren
-(*Import → Zwischenablage*), dann auf *Einzelsensoren EIN* oder *AUS* klicken. Der
-`exec`-Node setzt den Wert auf dem GX-Gerät und startet den Treiber neu.
+(*Import → Zwischenablage*), dann auf *manual ON* oder *manual OFF* klicken. Der
+`exec`-Node setzt den Wert auf dem GX-Gerät und startet den Treiber neu, der
+Debug-Node meldet zurück, ob es geklappt hat.
 
-Der Flow ist bewusst getrennt aufgebaut: Auslöser und Aktion sind zwei Dinge, damit
-beliebiges davorhängen kann — die beiden Inject-Nodes, ein Dashboard-Schalter oder
-ein virtueller Schalter, den du dir auf dem GX-Display angelegt hast. Die Aktion
-versteht `1`/`0`, `true`/`false` und `on`/`off`.
+Im Flow steckt außerdem ein `victron-virtual-switch` namens *Buck-Boost additional
+sensors*, der einen echten Schalter auf dem GX-Display anlegt — dafür ist der Flow
+eigentlich da: für alle, die keine Konsole öffnen wollen. Auslöser und Aktion sind
+bewusst getrennt, damit auch anderes davorhängen kann: die beiden Inject-Nodes, ein
+Dashboard-Element oder eigene Logik. Die Aktion versteht `1`/`0`, `true`/`false`
+und `on`/`off`.
+
+Voraussetzungen für den Flow: die Victron-Nodes für Node-RED (wegen des virtuellen
+Schalters) und eine Node-RED-Instanz, die Befehle auf dem GX-Gerät ausführen darf —
+das mitgelieferte Node-RED von Venus OS darf das.
+
+Beschriftungen und Meldungen im Flow sind bewusst englisch, passend zum Rest des
+Pakets und zur Venus-Oberfläche.
 
 ### Serial-Starter
 

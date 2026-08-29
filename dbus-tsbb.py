@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-dbus-tsbb.py — meldet einen Victron Buck-Boost DC-DC-Wandler (OEM: top systems
-TS 400/800/1600) auf dem D-Bus von Venus OS als com.victronenergy.alternator an.
+dbus-tsbb.py — publishes a Victron Buck-Boost DC-DC converter (OEM: top systems
+TS 400/800/1600) on the Venus OS D-Bus as com.victronenergy.alternator.
 
-Der Wandler hat keinen VE.Direct-Port; sein USB-Serial-Protokoll wurde aus der
-Windows-Software TSConfig v2.4.4 rekonstruiert. Es werden ausschliesslich
-Lesekommandos gesendet (FE 11 = lesen, FE D0 = Live-Block).
-Schreibende Kommandos sind bewusst nicht implementiert.
+The converter has no VE.Direct port; its USB serial protocol was reconstructed
+from the Windows tool TSConfig v2.4.4. Only read commands are ever sent
+(FE 11 = read, FE D0 = live block). Write commands are deliberately not
+implemented — the same interface accepts parameter changes and firmware
+updates, so a wrong address could alter charge settings or enter the bootloader.
 
-Aufruf ohne Argument: der Port wird unter /dev/serial/by-id/ gesucht.
+Called without an argument, the port is looked up under /dev/serial/by-id/.
 """
 import glob
 import os
@@ -28,29 +29,29 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.11"
+VERSION = "1.12"
 POLL_MS = 2000
 FALLBACK_INSTANCE = 40
-# systemcalc summiert /Dc/Alternator/Power ausschliesslich ueber
-# com.victronenergy.alternator - com.victronenergy.dcdc taucht in der
-# grafischen Uebersicht deshalb nicht auf. Victron selbst fuehrt DC-DC-Wandler
-# unter Alternator ("This also includes other DC/DC converters." in dvcc.py).
+# systemcalc sums /Dc/Alternator/Power over com.victronenergy.alternator only —
+# com.victronenergy.dcdc never reaches the overview page. Victron files DC-DC
+# converters under alternator as well ("This also includes other DC/DC
+# converters." in delegates/dvcc.py).
 SERVICE_CLASS = "alternator"
-# /DeviceOffReason ist eine Bitmaske: warum ist das Ladegeraet aus?
-# 0x08 = Remote connector - genau der Freigabeeingang an Pin 1.
+# /DeviceOffReason is a bitmask answering "why is the charger off?".
+# 0x08 = remote connector, which is exactly the enable input on pin 1.
 OFF_REASON_REMOTE_CONNECTOR = 0x08
-# Der CAN-Temperatursensor meldet -101, wenn keiner angeschlossen ist.
-# TSConfig schreibt in dem Fall "no signal" ins Feld.
+# The CAN temperature sensor reports -101 when none is connected.
+# TSConfig writes "no signal" into the field in that case.
 CAN_TEMP_NO_SIGNAL = -101
-# Temperaturalarm auf den MOSFETs. Der Wandler regelt ab Werk bei 85 Grad ab,
-# deshalb Vorwarnung deutlich darunter. Rueckfall mit Hysterese.
+# Temperature alarm on the MOSFETs. The converter starts limiting current at
+# 85 °C by default, so warn well below that. Released again with hysteresis.
 TEMP_WARNING = 75
 TEMP_ALARM = 85
 TEMP_HYSTERESIS = 5
-# Energiezaehler nur alle paar Minuten in die Settings schreiben
+# Only write the energy counter to the settings every few minutes
 ENERGY_SAVE_INTERVAL = 300
-# Optionale Einzelanzeige der Temperaturen als eigene Venus-Geraete.
-# Standard aus; einschalten mit
+# Optional: publish each temperature as its own Venus device.
+# Off by default; switch on with
 #   dbus -y com.victronenergy.settings \
 #        /Settings/Devices/tsbuckboost/SeparateTempSensors SetValue 1
 TEMP_SENSORS = (("Board", "t_board", "Board", 41),
@@ -58,13 +59,13 @@ TEMP_SENSORS = (("Board", "t_board", "Board", 41),
                 ("Mosfet2", "t_mosfet2", "MOSFET 2", 43),
                 ("CanSensor", "t_can", "CAN sensor", 44))
 
-# Geraetekennungen, Antwort auf FE 11 1F F2 01
+# Device ids, the answer to FE 11 1F F2 01
 IDS = {54: "TS800", 63: "TS400", 71: "TS800C", 73: "TS200", 82: "TS100",
        85: "TS1600", 87: "TS4002", 89: "TS800C2", 97: "TS16002",
        98: "TS4003", 108: "TS800C3", 112: "TSEV1000", 113: "TS800C5"}
-# interner Typ, nach dem TSConfig seine Formeln auswaehlt
+# internal type TSConfig picks its formulas by
 INTERNAL = {"TS800C5": "TS800C3", "TS4003": "TS4002"}
-# diese Typen rechnen die Ausgangsspannung ueber den Shunt-Faktor
+# these types compute the output voltage through the shunt factor
 SPFACTOR_VOUT = {"TS800C3", "TSEV1000", "TS16002"}
 LONG_BLOCK = {"TS1600", "TS16002", "TS800C2", "TS800C3", "TSEV1000",
               "TS4002", "TS100"}
@@ -78,23 +79,23 @@ def signed(v):
     return v - 256 if v > 127 else v
 
 
-# Byte 21 des Live-Blocks. Bit 0 und Bit 5 sind am Geraet verifiziert,
-# Bit 1 und Bit 3 sind aus dem Betriebsverlauf abgeleitet.
-STATUS_BITS = ((0x01, "wandelt"), (0x02, "freigegeben, wartet"),
-               (0x08, "Nachlauf"), (0x20, "ueber Pin 1 gesperrt"))
+# Byte 21 of the live block. Bit 0 and bit 5 are verified against the device,
+# bit 1 and bit 3 are inferred from observed behaviour.
+STATUS_BITS = ((0x01, "converting"), (0x02, "enabled, waiting"),
+               (0x08, "run-on"), (0x20, "disabled by pin 1"))
 
 
 def describe(status):
     names = [n for bit, n in STATUS_BITS if status & bit]
-    return ", ".join(names) if names else "aus"
+    return ", ".join(names) if names else "off"
 
 
 def private_bus():
-    """Eigene D-Bus-Verbindung.
+    """A D-Bus connection of its own.
 
-    VeDbusService haengt einen Handler an den Wurzelpfad "/", und den gibt es
-    pro Verbindung nur einmal. Mehrere Dienste in einem Prozess brauchen
-    deshalb je eine eigene Verbindung, sonst scheitert der zweite mit
+    VeDbusService attaches a handler to the root path "/", and there can only
+    be one per connection. Several services in one process therefore each need
+    their own connection, otherwise the second one fails with
     "there is already a handler".
     """
     try:
@@ -114,7 +115,7 @@ def find_port():
 
 
 class Converter(object):
-    """Serielle Anbindung an den Wandler, read-only."""
+    """Serial link to the converter, read-only."""
 
     def __init__(self, port):
         self.port = port
@@ -134,9 +135,9 @@ class Converter(object):
             pass
 
     def _ask(self, frame, nrec, timeout=1.0):
-        # Sicherung: dieser Treiber sendet ausschliesslich Lesekommandos
+        # Guard: this driver only ever sends read commands
         if frame[0] != 0xFE or frame[1] not in (0x11, 0xD0, 0xCF):
-            raise ValueError("nur Lesekommandos erlaubt")
+            raise ValueError("read commands only")
         self.ser.reset_input_buffer()
         self.ser.write(frame)
         self.ser.flush()
@@ -154,10 +155,10 @@ class Converter(object):
     def _read_identity(self):
         r = self._read(0x1F, 0xF2, 1)
         if not r:
-            raise IOError("keine Antwort auf die Typabfrage")
+            raise IOError("no answer to the type query")
         self.device_id = r[0]
         if self.device_id not in IDS:
-            raise IOError("unbekannte Geraetekennung %d - kein TS-Wandler?" % self.device_id)
+            raise IOError("unknown device id %d - not a TS converter?" % self.device_id)
         self.name = IDS[self.device_id]
         self.ctype = INTERNAL.get(self.name, self.name)
         self.block_len = 22 if self.ctype in LONG_BLOCK else 19
@@ -177,13 +178,13 @@ class Converter(object):
         self.offsets = list(cal[41:44]) if len(cal) >= 44 else [0, 0, 0]
 
         fw = self._read(0x00, 0xD0, 8)
-        # TSConfig zeigt die Firmware als Text an ("ts16v1.2"), die acht Bytes
-        # sind also ASCII. Nur wenn das nicht aufgeht, den Hex-String nehmen.
+        # TSConfig shows the firmware as text ("ts16v1.2"), so these eight bytes
+        # are ASCII. Only fall back to the hex string when that does not hold.
         self.firmware = ""
         if fw:
             text = "".join(chr(b) for b in fw if 32 <= b < 127).strip()
             self.firmware = text if len(text) >= 3 else fw.hex()
-        log("erkannt: %s (ID %d, intern %s), Firmware %s, %s, Faktoren %s, Nullpunkte %s"
+        log("found %s (id %d, internally %s), firmware %s, %s, factors %s, zero points %s"
             % (self.name, self.device_id, self.ctype, self.firmware or "?",
                "INA238" if self.ina == 2 else "INA226", self.sf, self.offsets))
 
@@ -191,15 +192,15 @@ class Converter(object):
         b = self._ask(bytes([0xFE, 0xD0]), self.block_len)
         if len(b) != self.block_len:
             return None
-        # Zusatzblock: Byte 0 ist der CAN-Temperatursensor, -101 = kein Signal
+        # Auxiliary block: byte 0 is the CAN temperature sensor, -101 = no signal
         aux = self._ask(bytes([0xFE, 0xCF]), 4, 0.5)
         can_temp = None
         if len(aux) == 4:
             v = signed(aux[0])
             can_temp = None if v == CAN_TEMP_NO_SIGNAL else v
         status = b[21] if len(b) > 21 else 0
-        active = bool(status & 0x01)           # Bit 0: Wandler wandelt
-        blocked = bool(status & 0x20)          # Bit 5: ueber Pin 1 gesperrt
+        active = bool(status & 0x01)           # bit 0: converter is converting
+        blocked = bool(status & 0x20)          # bit 5: disabled through pin 1
         current = 0.0
         if active:
             for k in range(3):
@@ -219,8 +220,8 @@ class Converter(object):
                 "active": active,
                 "blocked": blocked,
                 "status": status,
-                # Beschriftungen wie in TSConfig: Byte 19 "Temperature board",
-                # Byte 18 und 20 "Temperature mosfet", Zusatzblock CAN-Sensor
+                # Labels as in TSConfig: byte 19 "Temperature board",
+                # bytes 18 and 20 "Temperature mosfet", aux block CAN sensor
                 "t_board": signed(b[19]),
                 "t_mosfet1": signed(b[18]),
                 "t_mosfet2": signed(b[20]),
@@ -228,7 +229,7 @@ class Converter(object):
 
 
 def open_settings(bus, name):
-    """SettingsDevice mit Geraeteinstanz und gespeichertem Energiezaehler."""
+    """SettingsDevice holding the device instance and the stored energy count."""
     from settingsdevice import SettingsDevice
     return SettingsDevice(bus, {
         "instance": ["/Settings/Devices/%s/ClassAndVrmInstance" % name,
@@ -239,11 +240,11 @@ def open_settings(bus, name):
 
 
 def device_instance(bus, name):
-    """VRM-Instanz ueber die Venus-Settings holen, damit sie stabil bleibt.
+    """Fetch the VRM instance from the Venus settings so it stays stable.
 
-    Aeltere Fassungen dieses Treibers haben sich als dcdc angemeldet. Steht in
-    den Settings noch die alte Klasse, wird sie hier auf alternator umgezogen -
-    sonst ordnet VRM das Geraet weiter der alten Klasse zu.
+    Earlier versions of this driver registered as dcdc. If the settings still
+    carry the old class, migrate it to alternator here — otherwise VRM keeps
+    filing the device under the old class.
     """
     try:
         s = open_settings(bus, name)
@@ -251,12 +252,12 @@ def device_instance(bus, name):
         cls, _, num = stored.partition(":")
         instance = int(num) if num.isdigit() else FALLBACK_INSTANCE
         if cls != SERVICE_CLASS:
-            log("Geraeteklasse %s -> %s umgestellt" % (cls, SERVICE_CLASS))
+            log("device class migrated from %s to %s" % (cls, SERVICE_CLASS))
             s["instance"] = "%s:%d" % (SERVICE_CLASS, instance)
         return instance, s
     except Exception as e:
-        log("Settings nicht verfuegbar (%s), nutze Instanz %d - der "
-            "Energiezaehler laeuft dann nur bis zum naechsten Neustart"
+        log("settings not available (%s), using instance %d - the energy "
+            "counter will then only run until the next restart"
             % (e, FALLBACK_INSTANCE))
         return FALLBACK_INSTANCE, None
 
@@ -283,16 +284,16 @@ class Driver(object):
         try:
             self.svc = VeDbusService(svcname, bus=bus, register=False)
             deferred = True
-        except TypeError:                      # aeltere velib_python
+        except TypeError:                      # older velib_python
             self.svc = VeDbusService(svcname, bus=bus)
             deferred = False
 
         s = self.svc
         s.add_path("/Mgmt/ProcessName", os.path.basename(__file__))
         s.add_path("/Mgmt/ProcessVersion", VERSION)
-        # Die Zeile "Connection" auf der Device-Seite ist der einzige Ort, an dem
-        # beide GUI-Fassungen freien Text zeigen - deshalb steht dort neben dem
-        # Port auch die Treiberversion. Der Package manager fehlt in gui-v2.
+        # The "Connection" row on the device page is the only field both GUI
+        # versions render as free text, so the driver version goes there next to
+        # the port name. gui-v2 has no package manager to show it instead.
         s.add_path("/Mgmt/Connection", "%s (TsBuckBoost v%s)"
                    % (os.path.basename(os.path.realpath(port)), VERSION))
         s.add_path("/DeviceInstance", instance)
@@ -301,18 +302,18 @@ class Driver(object):
         s.add_path("/FirmwareVersion", self.conv.firmware)
         s.add_path("/Serial", "%s-%d" % (self.conv.ctype, self.conv.device_id))
         s.add_path("/Connected", 1)
-        # /Mode spiegelt den Freigabeeingang an Pin 1 wider: 1 = freigegeben,
-        # 4 = gesperrt. Nur lesbar - der Wandler laesst sich ueber diese
-        # Schnittstelle nicht schalten, nur ueber die Hardware an Pin 1.
+        # /Mode mirrors the enable input on pin 1: 1 = enabled, 4 = disabled.
+        # Read-only — the converter cannot be switched over this interface,
+        # only through the hardware input on pin 1.
         s.add_path("/Mode", 1)
-        s.add_path("/State", 0)                # 0 = Aus, 3 = Bulk
-        s.add_path("/DeviceOffReason", 0)      # Bitmaske, 0x08 = Pin 1 sperrt
-        s.add_path("/Alarms/HighTemperature", 0)   # 0 = ok, 1 = Warnung, 2 = Alarm
+        s.add_path("/State", 0)                # 0 = off, 3 = bulk
+        s.add_path("/DeviceOffReason", 0)      # bitmask, 0x08 = pin 1 disables
+        s.add_path("/Alarms/HighTemperature", 0)   # 0 = ok, 1 = warning, 2 = alarm
         s.add_path("/History/EnergyOut", round(self.energy, 2))
         for p in ("/Dc/0/Voltage", "/Dc/0/Current", "/Dc/0/Power",
                   "/Dc/In/V", "/Dc/1/Voltage", "/Dc/0/Temperature",
-                  # alles Weitere, was der Wandler hergibt - dieselben Werte,
-                  # die TSConfig im Monitorfenster zeigt
+                  # everything else the converter offers — the same values
+                  # TSConfig shows in its monitor window
                   "/Temperature/Board", "/Temperature/Mosfet1",
                   "/Temperature/Mosfet2", "/Temperature/CanSensor",
                   "/Current/Channel1", "/Current/Channel2", "/Current/Channel3",
@@ -320,7 +321,7 @@ class Driver(object):
             s.add_path(p, None)
         if deferred:
             s.register()
-        log("angemeldet als %s, Instanz %d" % (svcname, instance))
+        log("registered as %s, instance %d" % (svcname, instance))
 
         self.temp_services = {}
         self.temp_buses = []
@@ -331,15 +332,15 @@ class Driver(object):
             except Exception:
                 pass
             for key, field, label, inst in TEMP_SENSORS:
-                # den CAN-Sensor nur anlegen, wenn wirklich einer antwortet
+                # only create the CAN sensor when one actually answers
                 if key == "CanSensor" and (first is None or first.get("t_can") is None):
                     continue
                 try:
                     self.temp_services[key] = self._temp_service(key, label, inst)
                 except Exception as e:
-                    log("Temperaturgeraet %s nicht angelegt: %s" % (key, e))
+                    log("temperature device %s not created: %s" % (key, e))
             if self.temp_services:
-                log("zusaetzliche Temperaturgeraete: %s"
+                log("additional temperature devices: %s"
                     % ", ".join(sorted(self.temp_services)))
 
     def _separate_sensors(self):
@@ -353,7 +354,7 @@ class Driver(object):
     def _temp_service(self, key, label, instance):
         name = "com.victronenergy.temperature.tsbb_%s" % key.lower()
         bus = private_bus()
-        self.temp_buses.append(bus)        # Referenz halten, sonst raeumt Python auf
+        self.temp_buses.append(bus)        # keep a reference, or Python collects it
         try:
             svc = VeDbusService(name, bus=bus, register=False)
             deferred = True
@@ -369,8 +370,8 @@ class Driver(object):
         svc.add_path("/ProductName", "Buck-Boost %s" % label)
         svc.add_path("/CustomName", "Buck-Boost %s" % label)
         svc.add_path("/Connected", 1)
-        svc.add_path("/TemperatureType", 2)    # 2 = generisch
-        svc.add_path("/Status", 0)             # 0 = ok, 1 = nicht verbunden
+        svc.add_path("/TemperatureType", 2)    # 2 = generic
+        svc.add_path("/Status", 0)             # 0 = ok, 1 = disconnected
         svc.add_path("/Temperature", None)
         if deferred:
             svc.register()
@@ -380,7 +381,7 @@ class Driver(object):
         try:
             d = self.conv.read()
         except Exception as e:
-            log("Lesefehler: %s" % e)
+            log("read error: %s" % e)
             d = None
         if d is None:
             self.svc["/Connected"] = 0
@@ -388,8 +389,8 @@ class Driver(object):
             self.svc["/Dc/0/Current"] = 0
             self.svc["/Dc/0/Power"] = 0
             if not os.path.exists(self.port):
-                log("Port verschwunden - Neustart des Dienstes")
-                sys.exit(1)                    # daemontools startet neu
+                log("port disappeared - restarting the service")
+                sys.exit(1)                    # daemontools starts us again
             return True
         s = self.svc
         s["/Connected"] = 1
@@ -418,7 +419,7 @@ class Driver(object):
                     self.settings["energy"] = self.energy
                     self.energy_saved = self.energy
                 except Exception as e:
-                    log("Energiezaehler nicht gespeichert: %s" % e)
+                    log("energy counter not stored: %s" % e)
 
         hottest = max(d["t_mosfet1"], d["t_mosfet2"])
         if hottest >= TEMP_ALARM:
@@ -447,7 +448,7 @@ class Driver(object):
         s["/Mode"] = 4 if d["blocked"] else 1
         s["/DeviceOffReason"] = OFF_REASON_REMOTE_CONNECTOR if d["blocked"] else 0
         if d["status"] != self.last_status:
-            log("Status 0x%02X: %s" % (d["status"], describe(d["status"])))
+            log("status 0x%02X: %s" % (d["status"], describe(d["status"])))
             self.last_status = d["status"]
         return True
 
@@ -456,10 +457,10 @@ def main():
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     port = sys.argv[1] if len(sys.argv) > 1 else find_port()
     if not port:
-        log("kein CP210x-Port unter /dev/serial/by-id/ gefunden")
+        log("no CP210x port found under /dev/serial/by-id/")
         time.sleep(10)
         sys.exit(1)
-    log("dbus-tsbb %s startet, Port %s" % (VERSION, port))
+    log("dbus-tsbb %s starting, port %s" % (VERSION, port))
     driver = Driver(port)
     driver.update()
     GLib.timeout_add(POLL_MS, driver.update)
@@ -470,6 +471,6 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        log("Abbruch: %s" % exc)
-        time.sleep(10)                         # daemontools nicht ueberrennen
+        log("aborted: %s" % exc)
+        time.sleep(10)                         # do not hammer daemontools
         sys.exit(1)

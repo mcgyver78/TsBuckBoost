@@ -1,74 +1,41 @@
+v1.12
+  everything in the package is English now: log messages, comments in the driver,
+  and the node names, comments and status texts of the Node-RED flow in extras/
+  the flow reports failures instead of always claiming success - the status text
+  now comes from the exec return code, not from both outputs at once
+  the Node-RED flow and its description are part of the repository and the ReadMe
+  (de/en); no functional change to the driver itself
+
 v1.11
-  Fehler behoben: die zusaetzlichen Temperaturgeraete wurden nie angelegt.
-  VeDbusService haengt einen Handler an den Wurzelpfad "/", den es pro
-  D-Bus-Verbindung nur einmal gibt - jeder Zusatzdienst bekommt jetzt eine
-  eigene, private Verbindung
-  Treiberversion steht in der Connection-Zeile der Device-Seite, weil der
-  Package manager in gui-v2 fehlt
-  Firmware des Wandlers wird als Text angezeigt statt als Hex
-  fixes the extra temperature devices, shows the driver version on the
-  device page and the converter firmware as text
+  first version that is complete and stable in daily use. It publishes every
+  reading the converter provides - output and input voltage, charge current
+  including the three measuring channels, board and both MOSFET temperatures,
+  the CAN temperature sensor when one is connected, status byte and decoded
+  bits, the pin 1 enable input, firmware and type as text - plus an energy
+  counter that survives reboots and a high temperature alarm at 75/85 degrees.
+  Optionally the temperatures can be shown as separate Venus devices, switched
+  from the settings tree or from the Node-RED flow in extras/. The driver
+  version is visible in the connection line on the device page, because gui-v2
+  has no Package manager.
 
-v1.10
-  Node-RED-Flow korrigiert: der virtuelle Schalter wirkt jetzt auf den
-  Settings-Wert SeparateTempSensors statt auf den Geraetepfad /Mode - /Mode ist
-  der Pin-1-Spiegel und wird vom Treiber laufend selbst gesetzt
-  Node-RED flow fixed: the virtual switch now writes the settings value
+  Fixed in this version: the extra temperature devices were never created.
+  VeDbusService attaches a handler to the root path "/", of which there is only
+  one per D-Bus connection - each additional service now gets its own private
+  connection.
 
-v1.9
-  Node-RED-Flow unter extras/ zum Umschalten der Temperaturgeraete ohne Konsole;
-  Ausloeser und Aktion getrennt, damit ein virtueller Schalter auf dem GX-Display
-  oder ein Dashboard-Element davorhaengen kann
-  Node-RED flow added to toggle the separate temperature devices without a console
-
-v1.8
-  optionale Einzelanzeige der Temperaturen als eigene Venus-Geraete, per
-  Settings-Schalter SeparateTempSensors, standardmaessig aus; der CAN-Sensor
-  wird nur angelegt, wenn wirklich einer antwortet
-  optional separate temperature devices, switched via the settings tree
-
-v1.7
-  /History/EnergyOut: Energiezaehler in kWh, alle 5 Minuten in den Settings
-  gesichert, ueberlebt Neustarts - fuellt die History-Seite
-  /Alarms/HighTemperature: Warnung ab 75 Grad, Alarm ab 85 Grad, mit Hysterese
-  energy counter and high temperature alarm, filling the History and Alarms pages
-
-v1.6
-  alle uebrigen Messwerte des Wandlers im selben Geraet veroeffentlicht:
-  beide MOSFET-Temperaturen, Platinentemperatur, CAN-Temperatursensor aus dem
-  Zusatzblock FE CF (-101 = kein Signal), die drei Strommesskanaele einzeln,
-  Statusbyte und dekodierte Bits; Eingangsspannung zusaetzlich als /Dc/1/Voltage
-  all remaining converter readings published on the same device
-
-v1.5
-  ReadMe: Hinweis ergaenzt, dass die Alternator-Geraeteseite weder Schalter noch
-  Abschaltgrund anzeigt und wo der Pin-1-Zustand stattdessen abzugreifen ist
-  ReadMe: documented that the alternator device page shows neither switch nor
-  off reason, and where to read the pin 1 state instead
-
-v1.4
-  /DeviceOffReason ergaenzt: 0x08 (Remote connector), solange Pin 1 sperrt
-  /DeviceOffReason added: 0x08 (remote connector) while pin 1 disables the unit
-
-v1.3
-  meldet sich als com.victronenergy.alternator statt dcdc an - nur so erscheint
-  das Geraet in der grafischen Uebersicht neben Solar
-  vorhandene VRM-Instanz wird von dcdc: auf alternator: umgezogen
-  registers as com.victronenergy.alternator instead of dcdc, so the device shows
-  up on the overview page; existing VRM instance is migrated
-
-v1.2
-  ReadMe: Abschnitt zur Fehlersuche ergaenzt (serial-starter, wandernde
-  ttyUSB-Nummern, zwei Master auf einem Port, Log, Geraeteinstanz)
-  ReadMe: troubleshooting section added
-
-v1.1
-  /Mode spiegelt jetzt den Freigabeeingang an Pin 1 (Byte 21, Bit 5)
-  Statuswechsel werden im Log im Klartext ausgegeben
-  /Mode now mirrors the remote on/off input on pin 1 (byte 21, bit 5)
-  status changes are logged in plain text
-
-v1.0
-  erste Fassung / first release
-  liest Spannungen, Strom, Temperaturen und Aktiv-Zustand
-  meldet den Wandler als com.victronenergy.dcdc an
+v1.0 - v1.10
+  development versions, in this order:
+  v1.0   first release: voltages, current, temperatures, active state,
+         registered as com.victronenergy.dcdc
+  v1.1   /Mode mirrors the remote on/off input on pin 1, status changes logged
+  v1.2   ReadMe: troubleshooting section
+  v1.3   registers as com.victronenergy.alternator instead of dcdc, so the
+         device appears on the overview page next to solar; an existing VRM
+         instance is migrated
+  v1.4   /DeviceOffReason 0x08 (remote connector) while pin 1 disables the unit
+  v1.5   ReadMe: documented what the alternator device page does and does not show
+  v1.6   all remaining converter readings published on the same device
+  v1.7   /History/EnergyOut energy counter and /Alarms/HighTemperature
+  v1.8   optional separate temperature devices, off by default
+  v1.9   Node-RED flow in extras/ to switch them without a console
+  v1.10  flow fixed: it writes the settings value, not the device path /Mode
