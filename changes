@@ -1,3 +1,14 @@
+v1.11
+  Fehler behoben: die zusaetzlichen Temperaturgeraete wurden nie angelegt.
+  VeDbusService haengt einen Handler an den Wurzelpfad "/", den es pro
+  D-Bus-Verbindung nur einmal gibt - jeder Zusatzdienst bekommt jetzt eine
+  eigene, private Verbindung
+  Treiberversion steht in der Connection-Zeile der Device-Seite, weil der
+  Package manager in gui-v2 fehlt
+  Firmware des Wandlers wird als Text angezeigt statt als Hex
+  fixes the extra temperature devices, shows the driver version on the
+  device page and the converter firmware as text
+
 v1.10
   Node-RED-Flow korrigiert: der virtuelle Schalter wirkt jetzt auf den
   Settings-Wert SeparateTempSensors statt auf den Geraetepfad /Mode - /Mode ist

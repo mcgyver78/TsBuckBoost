@@ -28,7 +28,7 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.8"
+VERSION = "1.11"
 POLL_MS = 2000
 FALLBACK_INSTANCE = 40
 # systemcalc summiert /Dc/Alternator/Power ausschliesslich ueber
@@ -87,6 +87,22 @@ STATUS_BITS = ((0x01, "wandelt"), (0x02, "freigegeben, wartet"),
 def describe(status):
     names = [n for bit, n in STATUS_BITS if status & bit]
     return ", ".join(names) if names else "aus"
+
+
+def private_bus():
+    """Eigene D-Bus-Verbindung.
+
+    VeDbusService haengt einen Handler an den Wurzelpfad "/", und den gibt es
+    pro Verbindung nur einmal. Mehrere Dienste in einem Prozess brauchen
+    deshalb je eine eigene Verbindung, sonst scheitert der zweite mit
+    "there is already a handler".
+    """
+    try:
+        return dbus.SystemBus(private=True)
+    except Exception:
+        addr = os.environ.get("DBUS_SYSTEM_BUS_ADDRESS",
+                              "unix:path=/var/run/dbus/system_bus_socket")
+        return dbus.bus.BusConnection(addr)
 
 
 def find_port():
@@ -161,9 +177,14 @@ class Converter(object):
         self.offsets = list(cal[41:44]) if len(cal) >= 44 else [0, 0, 0]
 
         fw = self._read(0x00, 0xD0, 8)
-        self.firmware = fw.hex() if fw else ""
-        log("erkannt: %s (ID %d, intern %s), %s, Faktoren %s, Nullpunkte %s"
-            % (self.name, self.device_id, self.ctype,
+        # TSConfig zeigt die Firmware als Text an ("ts16v1.2"), die acht Bytes
+        # sind also ASCII. Nur wenn das nicht aufgeht, den Hex-String nehmen.
+        self.firmware = ""
+        if fw:
+            text = "".join(chr(b) for b in fw if 32 <= b < 127).strip()
+            self.firmware = text if len(text) >= 3 else fw.hex()
+        log("erkannt: %s (ID %d, intern %s), Firmware %s, %s, Faktoren %s, Nullpunkte %s"
+            % (self.name, self.device_id, self.ctype, self.firmware or "?",
                "INA238" if self.ina == 2 else "INA226", self.sf, self.offsets))
 
     def read(self):
@@ -269,7 +290,11 @@ class Driver(object):
         s = self.svc
         s.add_path("/Mgmt/ProcessName", os.path.basename(__file__))
         s.add_path("/Mgmt/ProcessVersion", VERSION)
-        s.add_path("/Mgmt/Connection", port)
+        # Die Zeile "Connection" auf der Device-Seite ist der einzige Ort, an dem
+        # beide GUI-Fassungen freien Text zeigen - deshalb steht dort neben dem
+        # Port auch die Treiberversion. Der Package manager fehlt in gui-v2.
+        s.add_path("/Mgmt/Connection", "%s (TsBuckBoost v%s)"
+                   % (os.path.basename(os.path.realpath(port)), VERSION))
         s.add_path("/DeviceInstance", instance)
         s.add_path("/ProductId", 0xFFFF)
         s.add_path("/ProductName", "Buck-Boost %s" % self.conv.name)
@@ -298,6 +323,7 @@ class Driver(object):
         log("angemeldet als %s, Instanz %d" % (svcname, instance))
 
         self.temp_services = {}
+        self.temp_buses = []
         if self._separate_sensors():
             first = None
             try:
@@ -309,7 +335,7 @@ class Driver(object):
                 if key == "CanSensor" and (first is None or first.get("t_can") is None):
                     continue
                 try:
-                    self.temp_services[key] = self._temp_service(bus, key, label, inst)
+                    self.temp_services[key] = self._temp_service(key, label, inst)
                 except Exception as e:
                     log("Temperaturgeraet %s nicht angelegt: %s" % (key, e))
             if self.temp_services:
@@ -324,8 +350,10 @@ class Driver(object):
         except Exception:
             return False
 
-    def _temp_service(self, bus, key, label, instance):
+    def _temp_service(self, key, label, instance):
         name = "com.victronenergy.temperature.tsbb_%s" % key.lower()
+        bus = private_bus()
+        self.temp_buses.append(bus)        # Referenz halten, sonst raeumt Python auf
         try:
             svc = VeDbusService(name, bus=bus, register=False)
             deferred = True
@@ -334,7 +362,8 @@ class Driver(object):
             deferred = False
         svc.add_path("/Mgmt/ProcessName", os.path.basename(__file__))
         svc.add_path("/Mgmt/ProcessVersion", VERSION)
-        svc.add_path("/Mgmt/Connection", self.port)
+        svc.add_path("/Mgmt/Connection", "%s (TsBuckBoost v%s)"
+                     % (os.path.basename(os.path.realpath(self.port)), VERSION))
         svc.add_path("/DeviceInstance", instance)
         svc.add_path("/ProductId", 0xFFFF)
         svc.add_path("/ProductName", "Buck-Boost %s" % label)
@@ -430,7 +459,7 @@ def main():
         log("kein CP210x-Port unter /dev/serial/by-id/ gefunden")
         time.sleep(10)
         sys.exit(1)
-    log("nutze Port %s" % port)
+    log("dbus-tsbb %s startet, Port %s" % (VERSION, port))
     driver = Driver(port)
     driver.update()
     GLib.timeout_add(POLL_MS, driver.update)
