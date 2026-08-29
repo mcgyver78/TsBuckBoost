@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 dbus-tsbb.py — meldet einen Victron Buck-Boost DC-DC-Wandler (OEM: top systems
-TS 400/800/1600) auf dem D-Bus von Venus OS als com.victronenergy.dcdc an.
+TS 400/800/1600) auf dem D-Bus von Venus OS als com.victronenergy.alternator an.
 
 Der Wandler hat keinen VE.Direct-Port; sein USB-Serial-Protokoll wurde aus der
 Windows-Software TSConfig v2.4.4 rekonstruiert. Es werden ausschliesslich
@@ -28,7 +28,7 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.4"
+VERSION = "1.7"
 POLL_MS = 2000
 FALLBACK_INSTANCE = 40
 # systemcalc summiert /Dc/Alternator/Power ausschliesslich ueber
@@ -39,6 +39,16 @@ SERVICE_CLASS = "alternator"
 # /DeviceOffReason ist eine Bitmaske: warum ist das Ladegeraet aus?
 # 0x08 = Remote connector - genau der Freigabeeingang an Pin 1.
 OFF_REASON_REMOTE_CONNECTOR = 0x08
+# Der CAN-Temperatursensor meldet -101, wenn keiner angeschlossen ist.
+# TSConfig schreibt in dem Fall "no signal" ins Feld.
+CAN_TEMP_NO_SIGNAL = -101
+# Temperaturalarm auf den MOSFETs. Der Wandler regelt ab Werk bei 85 Grad ab,
+# deshalb Vorwarnung deutlich darunter. Rueckfall mit Hysterese.
+TEMP_WARNING = 75
+TEMP_ALARM = 85
+TEMP_HYSTERESIS = 5
+# Energiezaehler nur alle paar Minuten in die Settings schreiben
+ENERGY_SAVE_INTERVAL = 300
 
 # Geraetekennungen, Antwort auf FE 11 1F F2 01
 IDS = {54: "TS800", 63: "TS400", 71: "TS800C", 73: "TS200", 82: "TS100",
@@ -152,6 +162,12 @@ class Converter(object):
         b = self._ask(bytes([0xFE, 0xD0]), self.block_len)
         if len(b) != self.block_len:
             return None
+        # Zusatzblock: Byte 0 ist der CAN-Temperatursensor, -101 = kein Signal
+        aux = self._ask(bytes([0xFE, 0xCF]), 4, 0.5)
+        can_temp = None
+        if len(aux) == 4:
+            v = signed(aux[0])
+            can_temp = None if v == CAN_TEMP_NO_SIGNAL else v
         status = b[21] if len(b) > 21 else 0
         active = bool(status & 0x01)           # Bit 0: Wandler wandelt
         blocked = bool(status & 0x20)          # Bit 5: ueber Pin 1 gesperrt
@@ -164,16 +180,32 @@ class Converter(object):
         v_out = v_raw * self.spfactor if self.ctype in SPFACTOR_VOUT \
             else v_raw / 1024.0 * 2.0 / 0.0636
         v_in = (b[12] * 256 + b[13]) / 1024.0 * 2.0 / 0.0636
+        channels = [round(max(0.0, (b[2 * k] * 256 + b[2 * k + 1] - self.offsets[k])
+                                * self.sf[k]), 2) for k in range(3)]
         return {"v_in": round(v_in, 2),
                 "v_out": round(v_out, 2),
                 "current": round(current, 2),
                 "power": round(v_out * current, 1),
+                "channels": channels,
                 "active": active,
                 "blocked": blocked,
                 "status": status,
-                "t_mosfet": signed(b[20]),
-                "t_board": signed(b[18]),
-                "t_pcb": signed(b[19])}
+                # Beschriftungen wie in TSConfig: Byte 19 "Temperature board",
+                # Byte 18 und 20 "Temperature mosfet", Zusatzblock CAN-Sensor
+                "t_board": signed(b[19]),
+                "t_mosfet1": signed(b[18]),
+                "t_mosfet2": signed(b[20]),
+                "t_can": can_temp}
+
+
+def open_settings(bus, name):
+    """SettingsDevice mit Geraeteinstanz und gespeichertem Energiezaehler."""
+    from settingsdevice import SettingsDevice
+    return SettingsDevice(bus, {
+        "instance": ["/Settings/Devices/%s/ClassAndVrmInstance" % name,
+                     "%s:%d" % (SERVICE_CLASS, FALLBACK_INSTANCE), 0, 0],
+        "energy": ["/Settings/Devices/%s/EnergyOut" % name, 0.0, 0, 0]},
+        eventCallback=None, timeout=10)
 
 
 def device_instance(bus, name):
@@ -183,23 +215,20 @@ def device_instance(bus, name):
     den Settings noch die alte Klasse, wird sie hier auf alternator umgezogen -
     sonst ordnet VRM das Geraet weiter der alten Klasse zu.
     """
-    default = "%s:%d" % (SERVICE_CLASS, FALLBACK_INSTANCE)
     try:
-        from settingsdevice import SettingsDevice
-        s = SettingsDevice(bus, {
-            "instance": ["/Settings/Devices/%s/ClassAndVrmInstance" % name,
-                         default, 0, 0]},
-            eventCallback=None, timeout=10)
+        s = open_settings(bus, name)
         stored = str(s["instance"])
         cls, _, num = stored.partition(":")
         instance = int(num) if num.isdigit() else FALLBACK_INSTANCE
         if cls != SERVICE_CLASS:
             log("Geraeteklasse %s -> %s umgestellt" % (cls, SERVICE_CLASS))
             s["instance"] = "%s:%d" % (SERVICE_CLASS, instance)
-        return instance
+        return instance, s
     except Exception as e:
-        log("Settings nicht verfuegbar (%s), nutze Instanz %d" % (e, FALLBACK_INSTANCE))
-        return FALLBACK_INSTANCE
+        log("Settings nicht verfuegbar (%s), nutze Instanz %d - der "
+            "Energiezaehler laeuft dann nur bis zum naechsten Neustart"
+            % (e, FALLBACK_INSTANCE))
+        return FALLBACK_INSTANCE, None
 
 
 class Driver(object):
@@ -208,7 +237,17 @@ class Driver(object):
         self.last_status = None
         self.conv = Converter(port)
         bus = dbus.SystemBus()
-        instance = device_instance(bus, "tsbuckboost")
+        instance, self.settings = device_instance(bus, "tsbuckboost")
+        self.energy = 0.0
+        if self.settings is not None:
+            try:
+                self.energy = float(self.settings["energy"])
+            except Exception:
+                self.energy = 0.0
+        self.energy_saved = self.energy
+        self.last_tick = time.time()
+        self.last_save = time.time()
+        self.temp_alarm = 0
         svcname = "com.victronenergy.%s.tsbb_%s" % (
             SERVICE_CLASS, os.path.basename(os.path.realpath(port)))
         try:
@@ -234,8 +273,16 @@ class Driver(object):
         s.add_path("/Mode", 1)
         s.add_path("/State", 0)                # 0 = Aus, 3 = Bulk
         s.add_path("/DeviceOffReason", 0)      # Bitmaske, 0x08 = Pin 1 sperrt
+        s.add_path("/Alarms/HighTemperature", 0)   # 0 = ok, 1 = Warnung, 2 = Alarm
+        s.add_path("/History/EnergyOut", round(self.energy, 2))
         for p in ("/Dc/0/Voltage", "/Dc/0/Current", "/Dc/0/Power",
-                  "/Dc/In/V", "/Dc/0/Temperature"):
+                  "/Dc/In/V", "/Dc/1/Voltage", "/Dc/0/Temperature",
+                  # alles Weitere, was der Wandler hergibt - dieselben Werte,
+                  # die TSConfig im Monitorfenster zeigt
+                  "/Temperature/Board", "/Temperature/Mosfet1",
+                  "/Temperature/Mosfet2", "/Temperature/CanSensor",
+                  "/Current/Channel1", "/Current/Channel2", "/Current/Channel3",
+                  "/StatusByte", "/Status/Converting", "/Status/BlockedByPin1"):
             s.add_path(p, None)
         if deferred:
             s.register()
@@ -262,7 +309,43 @@ class Driver(object):
         s["/Dc/0/Current"] = d["current"]
         s["/Dc/0/Power"] = d["power"]
         s["/Dc/In/V"] = d["v_in"]
-        s["/Dc/0/Temperature"] = d["t_mosfet"]
+        s["/Dc/1/Voltage"] = d["v_in"]
+        s["/Dc/0/Temperature"] = d["t_mosfet2"]
+        s["/Temperature/Board"] = d["t_board"]
+        s["/Temperature/Mosfet1"] = d["t_mosfet1"]
+        s["/Temperature/Mosfet2"] = d["t_mosfet2"]
+        s["/Temperature/CanSensor"] = d["t_can"]
+        for k in range(3):
+            s["/Current/Channel%d" % (k + 1)] = d["channels"][k] if d["active"] else 0
+        now = time.time()
+        dt = now - self.last_tick
+        self.last_tick = now
+        if d["active"] and 0 < dt < 60:
+            self.energy += d["power"] * dt / 3600000.0   # W * s -> kWh
+        s["/History/EnergyOut"] = round(self.energy, 2)
+        if self.settings is not None and now - self.last_save > ENERGY_SAVE_INTERVAL:
+            self.last_save = now
+            if round(self.energy, 3) != round(self.energy_saved, 3):
+                try:
+                    self.settings["energy"] = self.energy
+                    self.energy_saved = self.energy
+                except Exception as e:
+                    log("Energiezaehler nicht gespeichert: %s" % e)
+
+        hottest = max(d["t_mosfet1"], d["t_mosfet2"])
+        if hottest >= TEMP_ALARM:
+            self.temp_alarm = 2
+        elif hottest >= TEMP_WARNING:
+            self.temp_alarm = max(1, 1 if self.temp_alarm < 2 else 2)
+        elif hottest < TEMP_WARNING - TEMP_HYSTERESIS:
+            self.temp_alarm = 0
+        elif self.temp_alarm == 2 and hottest < TEMP_ALARM - TEMP_HYSTERESIS:
+            self.temp_alarm = 1
+        s["/Alarms/HighTemperature"] = self.temp_alarm
+
+        s["/StatusByte"] = d["status"]
+        s["/Status/Converting"] = 1 if d["active"] else 0
+        s["/Status/BlockedByPin1"] = 1 if d["blocked"] else 0
         s["/State"] = 3 if d["active"] else 0
         s["/Mode"] = 4 if d["blocked"] else 1
         s["/DeviceOffReason"] = OFF_REASON_REMOTE_CONNECTOR if d["blocked"] else 0

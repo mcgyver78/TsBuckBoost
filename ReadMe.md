@@ -11,9 +11,9 @@ Venus-OS-Treiber für den Victron Buck-Boost DC-DC-Wandler — ganz ohne VE.Dire
 
 Publishes a Victron Buck-Boost DC-DC converter (25 A / 50 A / 100 A) on the Venus OS
 D-Bus as `com.victronenergy.alternator`. The converter then shows up like an Orion XS
-in the GX display — including the overview page next to solar — in the VRM portal and
-in Node-RED's Victron nodes — even though the
-device has neither VE.Direct nor Bluetooth.
+in the GX display — including the overview page next to solar — as well as in the VRM
+portal and in Node-RED's Victron nodes, even though the device has neither VE.Direct
+nor Bluetooth.
 
 The Buck-Boost is not a Victron design. It is an OEM product by
 **top systems b.v.** (today TS Enovations), sold as the TS 400 / TS 800 / TS 1600
@@ -26,17 +26,26 @@ series. Out of the box it can only be configured with the Windows tool *TSConfig
 | `/Dc/0/Voltage` | Output voltage |
 | `/Dc/0/Current` | Output current (sum of the three measuring channels) |
 | `/Dc/0/Power` | Output power |
-| `/Dc/In/V` | Input voltage |
-| `/Dc/0/Temperature` | MOSFET temperature |
+| `/Dc/In/V`, `/Dc/1/Voltage` | Input voltage |
+| `/Dc/0/Temperature` | Hottest MOSFET temperature |
+| `/Temperature/Board` | Board temperature (byte 19) |
+| `/Temperature/Mosfet1`, `/Temperature/Mosfet2` | Both MOSFET temperatures (bytes 18, 20) |
+| `/Temperature/CanSensor` | CAN temperature sensor, invalid when no sensor is connected |
+| `/Current/Channel1…3` | The three current measuring channels, individually |
+| `/StatusByte`, `/Status/Converting`, `/Status/BlockedByPin1` | Raw status byte and the two decoded bits |
 | `/State` | 3 = charging, 0 = off |
+| `/History/EnergyOut` | Energy delivered, kWh, kept across restarts |
+| `/Alarms/HighTemperature` | 0 = ok, 1 = warning at 75 °C, 2 = alarm at 85 °C |
 | `/Mode` | 1 = enabled, 4 = disabled through pin 1 (read-only) |
 | `/DeviceOffReason` | 0x08 = remote connector, set while pin 1 disables the unit |
 | `/ProductName`, `/Serial`, `/FirmwareVersion` | Device identification |
 
-> **Note on the GX display:** the alternator device page shows neither an on/off
-> switch nor an off reason — only the dcdc page has those, and dcdc does not appear
-> on the overview. Pin 1 state is therefore published on D-Bus but not rendered by
-> the GUI. Read it through MQTT, the Victron nodes in Node-RED, or directly:
+> **Note on the GX display:** the alternator device page renders a fixed set of
+> paths — output voltage, current, power, state and temperature. Everything beyond
+> that (the individual temperatures, the current channels, the pin 1 state) is
+> published on D-Bus but not drawn by the GUI, and there is no way for a driver to
+> change that. Read those values through MQTT, the Victron nodes in Node-RED, or
+> directly:
 >
 > ```bash
 > dbus -y com.victronenergy.alternator.tsbb_ttyUSB1 /DeviceOffReason GetValue
@@ -98,6 +107,21 @@ and `/Link/ChargeCurrent`, and only when the service actually publishes them. Th
 driver does not — which is honest, because the converter cannot be controlled over
 this interface.
 
+### Energy counter and temperature alarm
+
+The GX device page for an alternator has an **Alarms** and a **History** submenu.
+Both are filled by this driver.
+
+`/History/EnergyOut` is integrated from output power while the converter is
+actually converting, and stored in the Venus settings every five minutes, so the
+counter survives restarts and firmware updates. VRM plots it as well.
+
+`/Alarms/HighTemperature` watches the hotter of the two MOSFET sensors: warning at
+75 °C, alarm at 85 °C, released again 5 K below with hysteresis. 85 °C is where the
+converter starts reducing current on its own, so the alarm fires before the device
+throttles rather than after. Voltage alarms are deliberately not published — sensible
+thresholds depend on the battery chemistry, and wrong ones only produce noise in VRM.
+
 ### Serial starter
 
 Venus OS attaches a service to every newly detected `ttyUSB` and probes it for
@@ -125,8 +149,14 @@ Inside the live block, big endian:
 | 0·1, 2·3, 4·5 | current channels 1–3, raw |
 | 10·11 | output voltage, raw |
 | 12·13 | input voltage, raw |
-| 18, 19, 20 | temperatures (board, PCB, MOSFET), signed |
+| 18, 20 | MOSFET temperatures, signed |
+| 19 | board temperature, signed |
 | 21 | status bits, see below |
+
+The auxiliary block `FE CF` carries the CAN temperature sensor in its first byte,
+also signed. A value of **−101 means “no signal”** — TSConfig writes exactly that
+into the field and colours it yellow. The driver publishes the path as invalid in
+that case instead of showing a nonsense reading.
 
 Status byte 21:
 
@@ -238,18 +268,26 @@ konfigurieren.
 | `/Dc/0/Voltage` | Ausgangsspannung |
 | `/Dc/0/Current` | Ausgangsstrom (Summe der drei Messkanäle) |
 | `/Dc/0/Power` | Ausgangsleistung |
-| `/Dc/In/V` | Eingangsspannung |
-| `/Dc/0/Temperature` | MOSFET-Temperatur |
+| `/Dc/In/V`, `/Dc/1/Voltage` | Eingangsspannung |
+| `/Dc/0/Temperature` | heißeste MOSFET-Temperatur |
+| `/Temperature/Board` | Platinentemperatur (Byte 19) |
+| `/Temperature/Mosfet1`, `/Temperature/Mosfet2` | beide MOSFET-Temperaturen (Byte 18, 20) |
+| `/Temperature/CanSensor` | CAN-Temperatursensor, ungültig wenn keiner angeschlossen ist |
+| `/Current/Channel1…3` | die drei Strommesskanäle einzeln |
+| `/StatusByte`, `/Status/Converting`, `/Status/BlockedByPin1` | rohes Statusbyte und die beiden dekodierten Bits |
 | `/State` | 3 = lädt, 0 = aus |
+| `/History/EnergyOut` | gelieferte Energie in kWh, überlebt Neustarts |
+| `/Alarms/HighTemperature` | 0 = ok, 1 = Warnung ab 75 °C, 2 = Alarm ab 85 °C |
 | `/Mode` | 1 = freigegeben, 4 = über Pin 1 gesperrt (nur lesbar) |
 | `/DeviceOffReason` | 0x08 = Remote connector, gesetzt solange Pin 1 sperrt |
 | `/ProductName`, `/Serial`, `/FirmwareVersion` | Gerätekennung |
 
-> **Hinweis zum GX-Display:** Die Alternator-Geräteseite zeigt weder einen
-> Ein/Aus-Schalter noch einen Abschaltgrund — beides kennt nur die dcdc-Seite, und
-> dcdc taucht dafür nicht in der Übersicht auf. Der Pin-1-Zustand liegt also auf dem
-> D-Bus, wird von der Oberfläche aber nicht dargestellt. Auslesen über MQTT, die
-> Victron-Nodes in Node-RED oder direkt:
+> **Hinweis zum GX-Display:** Die Alternator-Geräteseite zeichnet einen festen Satz
+> von Pfaden — Ausgangsspannung, -strom, -leistung, Zustand und eine Temperatur.
+> Alles darüber hinaus (die einzelnen Temperaturen, die Strommesskanäle, der
+> Pin-1-Zustand) liegt auf dem D-Bus, wird von der Oberfläche aber nicht angezeigt,
+> und ein Treiber kann daran nichts ändern. Auslesen über MQTT, die Victron-Nodes
+> in Node-RED oder direkt:
 >
 > ```bash
 > dbus -y com.victronenergy.alternator.tsbb_ttyUSB1 /DeviceOffReason GetValue
@@ -313,6 +351,21 @@ DVCC versucht nicht, dieses Gerät zu steuern: Geschrieben wird nur nach
 diese Pfade veröffentlicht. Dieser Treiber tut es nicht — was ehrlich ist, denn über
 diese Schnittstelle lässt sich der Wandler nicht steuern.
 
+### Energiezähler und Temperaturalarm
+
+Die GX-Geräteseite eines Alternators hat die Unterseiten **Alarms** und **History**.
+Beide füllt dieser Treiber.
+
+`/History/EnergyOut` wird aus der Ausgangsleistung integriert, solange der Wandler
+tatsächlich wandelt, und alle fünf Minuten in den Venus-Settings gesichert — der
+Zähler überlebt damit Neustarts und Firmware-Updates. VRM zeichnet ihn ebenfalls mit.
+
+`/Alarms/HighTemperature` beobachtet den höheren der beiden MOSFET-Sensoren: Warnung
+ab 75 °C, Alarm ab 85 °C, Rückfall mit 5 K Hysterese. Bei 85 °C beginnt der Wandler
+selbst, den Strom zu begrenzen — der Alarm kommt also, bevor das Gerät abregelt, nicht
+danach. Spannungsalarme gibt es bewusst nicht: Sinnvolle Schwellen hängen an der
+Batteriechemie, und falsch gesetzte erzeugen nur Lärm im VRM.
+
 ### Serial-Starter
 
 Venus OS hängt an jedes neu erkannte `ttyUSB` automatisch einen Dienst und probiert
@@ -341,8 +394,14 @@ Im Live-Block, big endian:
 | 0·1, 2·3, 4·5 | Strom Kanal 1–3, roh |
 | 10·11 | Ausgangsspannung, roh |
 | 12·13 | Eingangsspannung, roh |
-| 18, 19, 20 | Temperaturen (Platine, PCB, MOSFET), vorzeichenbehaftet |
+| 18, 20 | MOSFET-Temperaturen, vorzeichenbehaftet |
+| 19 | Platinentemperatur, vorzeichenbehaftet |
 | 21 | Statusbits, siehe unten |
+
+Der Zusatzblock `FE CF` trägt im ersten Byte den CAN-Temperatursensor, ebenfalls
+vorzeichenbehaftet. Der Wert **−101 bedeutet „no signal“** — TSConfig schreibt genau
+das ins Feld und färbt es gelb. Der Treiber meldet den Pfad dann als ungültig,
+statt einen Unsinnswert anzuzeigen.
 
 Statusbyte 21:
 

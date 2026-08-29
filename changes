@@ -1,3 +1,16 @@
+v1.7
+  /History/EnergyOut: Energiezaehler in kWh, alle 5 Minuten in den Settings
+  gesichert, ueberlebt Neustarts - fuellt die History-Seite
+  /Alarms/HighTemperature: Warnung ab 75 Grad, Alarm ab 85 Grad, mit Hysterese
+  energy counter and high temperature alarm, filling the History and Alarms pages
+
+v1.6
+  alle uebrigen Messwerte des Wandlers im selben Geraet veroeffentlicht:
+  beide MOSFET-Temperaturen, Platinentemperatur, CAN-Temperatursensor aus dem
+  Zusatzblock FE CF (-101 = kein Signal), die drei Strommesskanaele einzeln,
+  Statusbyte und dekodierte Bits; Eingangsspannung zusaetzlich als /Dc/1/Voltage
+  all remaining converter readings published on the same device
+
 v1.5
   ReadMe: Hinweis ergaenzt, dass die Alternator-Geraeteseite weder Schalter noch
   Abschaltgrund anzeigt und wo der Pin-1-Zustand stattdessen abzugreifen ist
