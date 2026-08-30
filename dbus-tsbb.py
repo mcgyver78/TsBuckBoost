@@ -29,7 +29,7 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.16"
+VERSION = "1.17"
 POLL_MS = 2000
 FALLBACK_INSTANCE = 40
 # systemcalc sums /Dc/Alternator/Power over com.victronenergy.alternator only —

@@ -174,7 +174,7 @@
         "type": "comment",
         "z": "tsbb_tab",
         "name": "Temperatures straight from the converter - no extra devices needed",
-        "info": "These read the paths the driver always publishes on its own service,\nwhether the separate temperature devices are switched on or not.\n\nIf the nodes show no service, open one and pick the Buck-Boost from\nthe list, then type the path by hand. The service is stored as\ncom.victronenergy.alternator.<device instance>; 40 is the default of\nthe driver, yours may differ - check with:\n  dbus -y com.victronenergy.settings \\\n       /Settings/Devices/tsbuckboost/ClassAndVrmInstance GetValue",
+        "info": "These read the paths the driver always publishes on its own service,\nwhether the separate temperature devices are switched on or not.\n\n\"Only changes\" is deliberately off: a temperature can sit on the same\nvalue for minutes, and with it on the nodes stay silent - and show\ndisconnected - until the reading finally moves. Off, a value arrives\nwith every poll of the driver, about every two seconds.\n\nIf a node shows no service, open it and pick the Buck-Boost from the\nlist, then type the path by hand. The service is stored as\ncom.victronenergy.alternator.<device instance>; 40 is the default of\nthe driver, yours may differ - check with:\n  dbus -y com.victronenergy.settings \\\n       /Settings/Devices/tsbuckboost/ClassAndVrmInstance GetValue",
         "x": 380,
         "y": 320,
         "wires": []
@@ -195,7 +195,7 @@
             "name": "Board temperature"
         },
         "name": "Board temperature",
-        "onlyChanges": true,
+        "onlyChanges": false,
         "x": 200,
         "y": 360,
         "wires": [
@@ -220,7 +220,7 @@
             "name": "MOSFET 1 temperature"
         },
         "name": "MOSFET 1 temperature",
-        "onlyChanges": true,
+        "onlyChanges": false,
         "x": 200,
         "y": 420,
         "wires": [
@@ -245,7 +245,7 @@
             "name": "MOSFET 2 temperature"
         },
         "name": "MOSFET 2 temperature",
-        "onlyChanges": true,
+        "onlyChanges": false,
         "x": 200,
         "y": 480,
         "wires": [
@@ -270,7 +270,7 @@
             "name": "CAN sensor temperature"
         },
         "name": "CAN sensor temperature",
-        "onlyChanges": true,
+        "onlyChanges": false,
         "x": 200,
         "y": 540,
         "wires": [

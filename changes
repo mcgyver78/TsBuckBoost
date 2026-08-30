@@ -1,3 +1,10 @@
+v1.17
+  Node-RED flow: the four temperature inputs had "only changes" set, so they
+  stayed silent - and showed disconnected - until a reading actually moved,
+  which on a steady temperature can take minutes. They now report on every
+  poll of the driver, so a value is there right after a deploy
+  no change to the driver logic
+
 v1.16
   Node-RED flow: the virtual switch emits its state right after a deploy, and
   the flow took that for a command - it wrote the setting and restarted the
