@@ -151,6 +151,13 @@ the individual sensors in the GX display, the driver can register them as proper
 Venus temperature devices — with their own name, history in VRM and alarm settings.
 This is **off by default**, because it adds entries to the device list.
 
+> The individual temperatures are **always** published, on the driver's own service
+> under `/Temperature/Board`, `/Temperature/Mosfet1`, `/Temperature/Mosfet2` and
+> `/Temperature/CanSensor`. The switch below only decides whether Venus additionally
+> lists them as devices of their own. So if you read the values in Node-RED or over
+> MQTT anyway, leave it off and keep the GX temperature page tidy — the flow in
+> `extras/` contains ready-made input nodes for exactly that.
+
 ```bash
 # on
 dbus -y com.victronenergy.settings \
@@ -173,8 +180,19 @@ updates. Editing the driver file instead would not: the next install replaces it
 **Without the console.** `extras/nodered-separate-temp-sensors.json` is a small
 Node-RED flow that does the same thing: import it through the Node-RED menu
 (*Import → clipboard*), then click *manual ON* or *manual OFF*. The `exec` node runs
-the command on the GX device and restarts the driver; the debug node reports back
-whether it worked.
+the command on the GX device, restarts the driver and then the GX user interface, so
+the device list is redrawn immediately — the display goes black for a few seconds,
+nothing else on the system is affected. The debug node reports back whether it worked.
+
+The flow also carries four input nodes that read the temperatures from the driver's
+own service, independent of the switch. They are preset to device instance 40, the
+driver's default; if yours differs, open a node and pick the converter from the list.
+Check with:
+
+```bash
+dbus -y com.victronenergy.settings \
+     /Settings/Devices/tsbuckboost/ClassAndVrmInstance GetValue
+```
 
 The flow also ships a `victron-virtual-switch` named *Buck-Boost additional sensors*,
 which puts a real switch on the GX display — that is the point of the flow for anyone
@@ -469,6 +487,13 @@ Sensoren im GX-Display sehen will, kann sie vom Treiber als vollwertige
 Venus-Temperaturgeräte anmelden lassen — mit eigenem Namen, Verlauf in VRM und
 Alarmschwellen. Standardmäßig ist das **aus**, weil es die Geräteliste verlängert.
 
+> Die einzelnen Temperaturen liegen **immer** auf dem D-Bus, im Dienst des Treibers
+> selbst unter `/Temperature/Board`, `/Temperature/Mosfet1`, `/Temperature/Mosfet2`
+> und `/Temperature/CanSensor`. Der Schalter unten entscheidet nur, ob Venus sie
+> zusätzlich als eigene Geräte führt. Wer die Werte ohnehin in Node-RED oder über
+> MQTT liest, lässt ihn also aus und hält die Temperaturseite im GX übersichtlich —
+> im Flow unter `extras/` liegen fertige Eingangs-Nodes dafür.
+
 ```bash
 # ein
 dbus -y com.victronenergy.settings \
@@ -492,8 +517,20 @@ Installation ersetzt sie.
 **Ohne Konsole.** `extras/nodered-separate-temp-sensors.json` ist ein kleiner
 Node-RED-Flow, der dasselbe erledigt: über das Node-RED-Menü importieren
 (*Import → Zwischenablage*), dann auf *manual ON* oder *manual OFF* klicken. Der
-`exec`-Node setzt den Wert auf dem GX-Gerät und startet den Treiber neu, der
+`exec`-Node setzt den Wert auf dem GX-Gerät, startet den Treiber neu und danach die
+GX-Oberfläche, damit die Geräteliste sofort neu gezeichnet wird — das Display ist
+dabei ein paar Sekunden schwarz, der Rest des Systems läuft ungestört weiter. Der
 Debug-Node meldet zurück, ob es geklappt hat.
+
+Im Flow liegen außerdem vier Eingangs-Nodes, die die Temperaturen direkt aus dem
+Dienst des Treibers lesen — unabhängig vom Schalter. Sie sind auf Geräteinstanz 40
+voreingestellt, den Standardwert des Treibers; weicht deine ab, öffne einen Node und
+wähle den Wandler aus der Liste. Nachsehen mit:
+
+```bash
+dbus -y com.victronenergy.settings \
+     /Settings/Devices/tsbuckboost/ClassAndVrmInstance GetValue
+```
 
 Im Flow steckt außerdem ein `victron-virtual-switch` namens *Buck-Boost additional
 sensors*, der einen echten Schalter auf dem GX-Display anlegt — dafür ist der Flow

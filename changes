@@ -1,3 +1,13 @@
+v1.15
+  ReadMe (de/en): makes clear that the individual temperatures are always on
+  D-Bus in the driver's own service - the settings switch only decides whether
+  Venus lists them as devices of their own
+  Node-RED flow: four input nodes for board, both MOSFETs and the CAN sensor,
+  reading the driver service directly and working with the switch either way
+  Node-RED flow: after switching, the GX user interface is restarted as well,
+  so the device list is redrawn instead of keeping stale entries on screen
+  no change to the driver logic
+
 v1.14
   ReadMe (de/en): points to the new hardware branch, which holds a
   3D-printable mount for an 80 mm fan on the Buck-Boost 50 A (STEP/STL).
