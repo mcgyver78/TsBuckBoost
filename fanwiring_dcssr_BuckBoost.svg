@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 1160" width="1300" height="1160" font-family="Helvetica, Arial, sans-serif">
+  <rect x="0" y="0" width="1300" height="1100" fill="#ffffff"/>
+
+  <text x="60" y="46" font-size="21" font-weight="700" fill="#111">Fan control for the Victron Buck-Boost — switched by the converter output through a DC-SSR</text>
+  <text x="60" y="70" font-size="13" fill="#555">The converter runs 12 V or 24 V on either side. Take the fan supply from the side whose voltage matches the fan.</text>
+
+  <text x="60" y="116" font-size="13" font-weight="700" fill="#111">Installation</text>
+  <text x="156" y="116" font-size="12" fill="#555">— all power terminals sit on one end of the case, seen here from that end</text>
+
+  <!-- legend -->
+  <rect x="60" y="168" width="330" height="96" rx="8" fill="#fbfcfd" stroke="#ddd" stroke-width="1.5"/>
+  <circle cx="86" cy="198" r="13" fill="#fff" stroke="#aaa" stroke-width="2"/>
+  <text x="86" y="203" font-size="10.5" font-weight="700" text-anchor="middle" fill="#888">P1</text>
+  <text x="108" y="194" font-size="11" fill="#888">pin 1, purple — enable input,</text>
+  <text x="108" y="208" font-size="11" fill="#888">already in use, driver mirrors it as /Mode</text>
+  <circle cx="86" cy="240" r="14" fill="#fff" stroke="#111" stroke-width="2"/>
+  <text x="86" y="245" font-size="11" font-weight="700" text-anchor="middle" fill="#111">P2</text>
+  <text x="108" y="236" font-size="11" fill="#555">pin 2, green — programmable output,</text>
+  <text x="108" y="250" font-size="11" fill="#555">function set in TSConfig</text>
+
+  <!-- ================= converter body ================= -->
+  <rect x="430" y="150" width="440" height="180" rx="10" fill="#f4f6f8" stroke="#111" stroke-width="2"/>
+  <g stroke="#dbe1e6" stroke-width="2">
+    <line x1="460" y1="162" x2="460" y2="232"/><line x1="490" y1="162" x2="490" y2="232"/>
+    <line x1="520" y1="162" x2="520" y2="232"/><line x1="550" y1="162" x2="550" y2="232"/>
+    <line x1="580" y1="162" x2="580" y2="232"/><line x1="610" y1="162" x2="610" y2="232"/>
+    <line x1="640" y1="162" x2="640" y2="232"/><line x1="670" y1="162" x2="670" y2="232"/>
+    <line x1="700" y1="162" x2="700" y2="232"/><line x1="730" y1="162" x2="730" y2="232"/>
+    <line x1="760" y1="162" x2="760" y2="232"/><line x1="790" y1="162" x2="790" y2="232"/>
+    <line x1="820" y1="162" x2="820" y2="232"/><line x1="840" y1="162" x2="840" y2="232"/>
+  </g>
+  <text x="650" y="270" font-size="15" font-weight="700" text-anchor="middle" fill="#111">Buck-Boost 25 / 50 / 100 A</text>
+  <text x="650" y="290" font-size="11.5" text-anchor="middle" fill="#555">IN and OUT each 12 V or 24 V — approx. 207 × 118 × 37 mm</text>
+
+  <!-- studs on the terminal end -->
+  <rect x="447" y="330" width="18" height="14" fill="#e6eaee" stroke="#111" stroke-width="2"/>
+  <text x="456" y="322" font-size="12" font-weight="700" text-anchor="middle" fill="#111">IN</text>
+  <rect x="632" y="330" width="18" height="14" fill="#e6eaee" stroke="#111" stroke-width="2"/>
+  <text x="641" y="322" font-size="12" font-weight="700" text-anchor="middle" fill="#111">GND</text>
+  <rect x="834" y="330" width="18" height="14" fill="#e6eaee" stroke="#111" stroke-width="2"/>
+  <text x="843" y="322" font-size="12" font-weight="700" text-anchor="middle" fill="#111">OUT</text>
+
+  <!-- signal connector -->
+  <rect x="716" y="330" width="56" height="14" fill="#e6eaee" stroke="#111" stroke-width="2"/>
+  <text x="744" y="322" font-size="11" text-anchor="middle" fill="#555">pin 1 · pin 2</text>
+  <line x1="728" y1="344" x2="728" y2="372" stroke="#aaa" stroke-width="2.5" stroke-dasharray="5 4"/>
+  <circle cx="728" cy="386" r="13" fill="#fff" stroke="#aaa" stroke-width="2"/>
+  <text x="728" y="391" font-size="10.5" font-weight="700" text-anchor="middle" fill="#888">P1</text>
+  <line x1="760" y1="344" x2="760" y2="372" stroke="#111" stroke-width="2.5"/>
+  <circle cx="790" cy="386" r="14" fill="#fff" stroke="#111" stroke-width="2"/>
+  <text x="790" y="391" font-size="11" font-weight="700" text-anchor="middle" fill="#111">P2</text>
+  <line x1="760" y1="372" x2="790" y2="372" stroke="#111" stroke-width="2.5"/>
+
+  <!-- IN wiring -->
+  <line x1="456" y1="344" x2="456" y2="500" stroke="#111" stroke-width="2.5"/>
+  <line x1="200" y1="500" x2="456" y2="500" stroke="#111" stroke-width="2.5"/>
+  <circle cx="456" cy="354" r="5" fill="#111"/>
+  <line x1="456" y1="354" x2="410" y2="354" stroke="#111" stroke-width="2.5"/>
+  <circle cx="396" cy="354" r="14" fill="#fff" stroke="#111" stroke-width="2"/>
+  <text x="396" y="359" font-size="13" font-weight="700" text-anchor="middle" fill="#111">A</text>
+  <text x="374" y="358" font-size="11.5" text-anchor="end" fill="#555">V_in</text>
+
+  <!-- alternator -->
+  <circle cx="200" cy="590" r="44" fill="#f4f6f8" stroke="#111" stroke-width="2"/>
+  <path d="M178 590 C187 570, 194 610, 203 590 C212 570, 216 598, 222 590" fill="none" stroke="#111" stroke-width="2"/>
+  <line x1="200" y1="500" x2="200" y2="546" stroke="#111" stroke-width="2.5"/>
+  <line x1="200" y1="634" x2="200" y2="720" stroke="#111" stroke-width="2.5"/>
+  <text x="146" y="596" font-size="12.5" text-anchor="end" fill="#111">Alternator</text>
+
+  <!-- starter battery -->
+  <line x1="330" y1="500" x2="330" y2="596" stroke="#111" stroke-width="2.5"/>
+  <line x1="306" y1="596" x2="354" y2="596" stroke="#111" stroke-width="2.5"/>
+  <line x1="318" y1="610" x2="342" y2="610" stroke="#111" stroke-width="3.5"/>
+  <line x1="330" y1="610" x2="330" y2="720" stroke="#111" stroke-width="2.5"/>
+  <circle cx="330" cy="500" r="5" fill="#111"/>
+  <text x="364" y="592" font-size="12.5" fill="#111">Starter battery</text>
+  <text x="364" y="609" font-size="11.5" fill="#555">12 V or 24 V</text>
+
+  <!-- OUT wiring -->
+  <line x1="843" y1="344" x2="843" y2="500" stroke="#111" stroke-width="2.5"/>
+  <line x1="843" y1="500" x2="1080" y2="500" stroke="#111" stroke-width="2.5"/>
+  <circle cx="843" cy="354" r="5" fill="#111"/>
+  <line x1="843" y1="354" x2="889" y2="354" stroke="#111" stroke-width="2.5"/>
+  <circle cx="903" cy="354" r="14" fill="#fff" stroke="#111" stroke-width="2"/>
+  <text x="903" y="359" font-size="13" font-weight="700" text-anchor="middle" fill="#111">B</text>
+  <text x="925" y="358" font-size="11.5" fill="#555">V_out</text>
+
+  <!-- house battery -->
+  <line x1="1080" y1="500" x2="1080" y2="596" stroke="#111" stroke-width="2.5"/>
+  <line x1="1056" y1="596" x2="1104" y2="596" stroke="#111" stroke-width="2.5"/>
+  <line x1="1068" y1="610" x2="1092" y2="610" stroke="#111" stroke-width="3.5"/>
+  <line x1="1080" y1="610" x2="1080" y2="720" stroke="#111" stroke-width="2.5"/>
+  <text x="1114" y="592" font-size="12.5" fill="#111">House battery</text>
+  <text x="1114" y="609" font-size="11.5" fill="#555">24 V or 12 V</text>
+
+  <!-- GND stud to rail -->
+  <line x1="641" y1="344" x2="641" y2="720" stroke="#111" stroke-width="2.5"/>
+
+  <!-- ground rail -->
+  <line x1="160" y1="720" x2="1080" y2="720" stroke="#111" stroke-width="2.5"/>
+  <circle cx="200" cy="720" r="5" fill="#111"/>
+  <circle cx="330" cy="720" r="5" fill="#111"/>
+  <circle cx="641" cy="720" r="5" fill="#111"/>
+  <circle cx="1080" cy="720" r="5" fill="#111"/>
+  <line x1="160" y1="720" x2="160" y2="746" stroke="#111" stroke-width="2.5"/>
+  <line x1="140" y1="746" x2="180" y2="746" stroke="#111" stroke-width="2.5"/>
+  <line x1="147" y1="754" x2="173" y2="754" stroke="#111" stroke-width="2.5"/>
+  <line x1="154" y1="762" x2="166" y2="762" stroke="#111" stroke-width="2.5"/>
+  <text x="760" y="742" font-size="11.5" fill="#555">chassis / common ground</text>
+
+  <!-- ================= bottom panel: fan branch ================= -->
+  <rect x="60" y="800" width="1180" height="230" rx="10" fill="#fbfcfd" stroke="#ccc" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <text x="84" y="832" font-size="13" font-weight="700" fill="#111">Fan branch</text>
+  <text x="180" y="832" font-size="12" fill="#555">— supply from tap A or tap B, whichever voltage matches the fan. Connect one of the two, never both.</text>
+
+  <circle cx="150" cy="900" r="14" fill="#fff" stroke="#111" stroke-width="2"/>
+  <text x="150" y="905" font-size="12" font-weight="700" text-anchor="middle" fill="#111">A</text>
+  <text x="150" y="872" font-size="11" text-anchor="middle" fill="#555">or B</text>
+  <line x1="164" y1="900" x2="272" y2="900" stroke="#111" stroke-width="2.5"/>
+
+  <rect x="272" y="887" width="58" height="26" fill="#fff" stroke="#111" stroke-width="2.5"/>
+  <line x1="278" y1="900" x2="324" y2="900" stroke="#111" stroke-width="2"/>
+  <text x="301" y="878" font-size="12" font-weight="700" text-anchor="middle" fill="#111">F1</text>
+  <text x="301" y="933" font-size="11.5" text-anchor="middle" fill="#555">size for the fan</text>
+  <line x1="330" y1="900" x2="480" y2="900" stroke="#111" stroke-width="2.5"/>
+
+  <circle cx="150" cy="966" r="14" fill="#fff" stroke="#111" stroke-width="2"/>
+  <text x="150" y="971" font-size="11" font-weight="700" text-anchor="middle" fill="#111">P2</text>
+  <line x1="164" y1="966" x2="386" y2="966" stroke="#111" stroke-width="2.5"/>
+  <rect x="386" y="954" width="54" height="24" fill="#fff" stroke="#111" stroke-width="2" stroke-dasharray="5 4"/>
+  <text x="413" y="998" font-size="10.5" text-anchor="middle" fill="#888">R, old units</text>
+  <line x1="440" y1="966" x2="480" y2="966" stroke="#111" stroke-width="2.5"/>
+
+  <rect x="480" y="840" width="280" height="180" rx="6" fill="#f4f6f8" stroke="#111" stroke-width="2"/>
+  <text x="84" y="1014" font-size="12" font-weight="700" fill="#111">DC-SSR</text>
+  <text x="148" y="1014" font-size="11" fill="#666">— MOSFET or photoMOS, control 3–32 V DC</text>
+
+  <line x1="480" y1="900" x2="576" y2="900" stroke="#111" stroke-width="2.5"/>
+  <line x1="576" y1="900" x2="626" y2="874" stroke="#111" stroke-width="2.5"/>
+  <line x1="630" y1="900" x2="760" y2="900" stroke="#111" stroke-width="2.5"/>
+  <circle cx="576" cy="900" r="3.5" fill="#111"/>
+  <circle cx="630" cy="900" r="3.5" fill="#111"/>
+  <circle cx="480" cy="900" r="5" fill="#111"/>
+  <circle cx="760" cy="900" r="5" fill="#111"/>
+
+  <circle cx="480" cy="966" r="5" fill="#111"/>
+  <text x="492" y="958" font-size="11" fill="#777">+</text>
+  <line x1="480" y1="966" x2="528" y2="966" stroke="#111" stroke-width="2.5"/>
+  <path d="M528 954 L528 978 L552 966 Z" fill="#dfe4e9" stroke="#111" stroke-width="2"/>
+  <line x1="552" y1="954" x2="552" y2="978" stroke="#111" stroke-width="2.5"/>
+  <line x1="552" y1="966" x2="576" y2="966" stroke="#111" stroke-width="2.5"/>
+  <line x1="576" y1="966" x2="576" y2="1000" stroke="#111" stroke-width="2.5"/>
+  <text x="588" y="994" font-size="11" fill="#777">−</text>
+  <line x1="560" y1="950" x2="586" y2="936" stroke="#111" stroke-width="1.5"/>
+  <polygon points="586,936 577,937 581,943" fill="#111"/>
+  <line x1="600" y1="928" x2="600" y2="908" stroke="#111" stroke-width="1.5" stroke-dasharray="4 4"/>
+
+  <line x1="760" y1="900" x2="900" y2="900" stroke="#111" stroke-width="2.5"/>
+  <circle cx="900" cy="900" r="52" fill="#f4f6f8" stroke="#111" stroke-width="2"/>
+  <g transform="translate(900,900)" stroke="#111" stroke-width="1.5" fill="#dfe4e9" stroke-linejoin="round">
+    <path d="M0,0 C 3,-15 17,-27 33,-30 C 32,-14 17,-3 0,0 Z" transform="rotate(0)"/>
+    <path d="M0,0 C 3,-15 17,-27 33,-30 C 32,-14 17,-3 0,0 Z" transform="rotate(90)"/>
+    <path d="M0,0 C 3,-15 17,-27 33,-30 C 32,-14 17,-3 0,0 Z" transform="rotate(180)"/>
+    <path d="M0,0 C 3,-15 17,-27 33,-30 C 32,-14 17,-3 0,0 Z" transform="rotate(270)"/>
+  </g>
+  <circle cx="900" cy="900" r="5" fill="#111"/>
+  <text x="972" y="894" font-size="12.5" fill="#111">Fan, 80 mm</text>
+  <text x="972" y="912" font-size="11.5" fill="#555">rated for the tapped voltage</text>
+  <line x1="900" y1="952" x2="900" y2="1000" stroke="#111" stroke-width="2.5"/>
+
+  <line x1="500" y1="1000" x2="900" y2="1000" stroke="#111" stroke-width="2.5"/>
+  <circle cx="576" cy="1000" r="5" fill="#111"/>
+  <circle cx="900" cy="1000" r="5" fill="#111"/>
+  <line x1="500" y1="1000" x2="500" y2="1014" stroke="#111" stroke-width="2.5"/>
+  <line x1="482" y1="1014" x2="518" y2="1014" stroke="#111" stroke-width="2.5"/>
+  <line x1="489" y1="1021" x2="511" y2="1021" stroke="#111" stroke-width="2.5"/>
+  <text x="940" y="1004" font-size="11.5" fill="#555">same ground as the converter</text>
+
+  <!-- notes -->
+  <line x1="60" y1="1058" x2="1240" y2="1058" stroke="#ddd" stroke-width="1"/>
+  <text x="60" y="1080" font-size="12" fill="#111"><tspan font-weight="700">1</tspan>  The fan must match the voltage of the tap it hangs on — check which side of your installation is 12 V and which is 24 V before wiring.</text>
+  <text x="60" y="1100" font-size="12" fill="#111"><tspan font-weight="700">2</tspan>  If the fan does not suit the input side, take the supply from the converter output instead (tap B). Same circuit, other tap.</text>
+  <text x="60" y="1120" font-size="12" fill="#111"><tspan font-weight="700">3</tspan>  The SSR must be DC rated (MOSFET or photoMOS). An AC triac type conducts until the current crosses zero and never switches DC off again.</text>
+  <text x="60" y="1140" font-size="12" fill="#111"><tspan font-weight="700">4</tspan>  Pin 2 carries V_in when active and is rated 1.5 A. Old TS units (smooth case) need the series resistor supplied with the converter.</text>
+</svg>

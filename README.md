@@ -1,8 +1,8 @@
 # Hardware for TsBuckBoost
 
-Printable and printable-on-paper parts around the Victron Buck-Boost DC-DC converter.
-This is a separate branch on purpose: the `latest` branch is installed onto GX devices
-through kwindrem's SetupHelper, and these files have no business in that package.
+Printable parts and wiring notes around the Victron Buck-Boost DC-DC converter. This is
+a separate branch on purpose: the `latest` branch is installed onto GX devices through
+kwindrem's SetupHelper, and these files have no business in that package.
 
 The driver itself is on the [`latest`](../../tree/latest) branch.
 
