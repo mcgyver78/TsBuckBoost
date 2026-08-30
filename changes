@@ -1,3 +1,9 @@
+v1.14
+  ReadMe (de/en): points to the new hardware branch, which holds a
+  3D-printable mount for an 80 mm fan on the Buck-Boost 50 A (STEP/STL).
+  It is kept out of the package so SetupHelper does not copy it onto
+  every GX device.
+
 v1.13
   /Dc/0/Temperature now carries the hotter of the two MOSFETs instead of MOSFET 2
   alone - the device page, the alarm and the ReadMe now refer to the same number

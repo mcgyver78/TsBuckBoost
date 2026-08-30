@@ -299,6 +299,14 @@ when the converter is actually working.
 `/Settings/Devices/tsbuckboost/ClassAndVrmInstance` and defaults to `dcdc:40`. If it
 collides with another device, change it there and restart the service.
 
+### Fan mount
+
+A 3D-printable mount for an 80 mm fan on the Buck-Boost 50 A, as STEP and STL, lives on
+the separate [`hardware`](../../tree/hardware) branch — it is kept out of the package so
+SetupHelper does not copy it onto every GX device. The converter derates on temperature,
+so a slow-running fan keeps the charge current up in a warm compartment, which is also
+what makes the temperature readings above worth watching. Not required for the driver.
+
 ### Verified against
 
 Buck-Boost 50 A (id 113 / TS800C5) in a 12 → 24 V installation, checked against a
@@ -616,6 +624,15 @@ Geräusch die zuverlässigste Anzeige dafür, wann der Wandler wirklich arbeitet
 **VRM zeigt die falsche Geräteinstanz.** Sie steht in
 `/Settings/Devices/tsbuckboost/ClassAndVrmInstance` und ist mit `dcdc:40` vorbelegt.
 Bei einer Kollision dort ändern und den Dienst neu starten.
+
+### Lüfterhalterung
+
+Eine druckbare Halterung für einen 80-mm-Lüfter am Buck-Boost 50 A, als STEP und STL,
+liegt im eigenen Branch [`hardware`](../../tree/hardware) — bewusst außerhalb des Pakets,
+damit SetupHelper sie nicht auf jedes GX-Gerät kopiert. Der Wandler regelt bei Wärme
+zurück, ein langsam laufender Lüfter hält den Ladestrom in einem warmen Schacht also oben
+und macht die Temperaturwerte von oben erst richtig interessant. Für den Treiber wird sie
+nicht gebraucht.
 
 ### Geprüft mit
 
