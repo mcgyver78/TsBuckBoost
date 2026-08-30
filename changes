@@ -1,3 +1,13 @@
+v1.16
+  Node-RED flow: the virtual switch emits its state right after a deploy, and
+  the flow took that for a command - it wrote the setting and restarted the
+  driver and the GX display on every deploy. Messages in the first five
+  seconds after a deploy are now ignored
+  Node-RED flow: the setting is read before writing, so nothing is restarted
+  when the value would not change; the status now says switched, unchanged
+  or failed instead of always reporting success
+  no change to the driver logic
+
 v1.15
   ReadMe (de/en): makes clear that the individual temperatures are always on
   D-Bus in the driver's own service - the settings switch only decides whether

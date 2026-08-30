@@ -184,6 +184,14 @@ the command on the GX device, restarts the driver and then the GX user interface
 the device list is redrawn immediately — the display goes black for a few seconds,
 nothing else on the system is affected. The debug node reports back whether it worked.
 
+The flow reads the setting before writing and only acts on a real change, and it
+ignores anything arriving in the first five seconds after a deploy — the virtual
+switch announces its state then, which is not a command.
+
+If you had been reading the temperatures through the separate temperature devices in
+Node-RED, switching them off takes those nodes' source away. Use the input nodes
+described next instead; they keep working either way.
+
 The flow also carries four input nodes that read the temperatures from the driver's
 own service, independent of the switch. They are preset to device instance 40, the
 driver's default; if yours differs, open a node and pick the converter from the list.
@@ -521,6 +529,15 @@ Node-RED-Flow, der dasselbe erledigt: über das Node-RED-Menü importieren
 GX-Oberfläche, damit die Geräteliste sofort neu gezeichnet wird — das Display ist
 dabei ein paar Sekunden schwarz, der Rest des Systems läuft ungestört weiter. Der
 Debug-Node meldet zurück, ob es geklappt hat.
+
+Der Flow liest die Einstellung vor dem Schreiben und wird nur bei einer echten
+Änderung aktiv. Außerdem ignoriert er alles, was in den ersten fünf Sekunden nach
+einem Deploy hereinkommt — der virtuelle Schalter meldet dann seinen Zustand, und das
+ist kein Schaltbefehl.
+
+Wer die Temperaturen in Node-RED bisher über die separaten Temperaturgeräte gelesen
+hat: beim Abschalten verlieren diese Nodes ihre Quelle. Dafür sind die folgenden
+Eingangs-Nodes da, die unabhängig davon weiterlaufen.
 
 Im Flow liegen außerdem vier Eingangs-Nodes, die die Temperaturen direkt aus dem
 Dienst des Treibers lesen — unabhängig vom Schalter. Sie sind auf Geräteinstanz 40
