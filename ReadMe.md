@@ -65,18 +65,20 @@ labels therefore read oddly for a DC-DC converter, and a driver cannot change th
 Both values exist under a second, correctly named path — use those instead:
 
 - input voltage: `/Dc/In/V`, listed as *Input voltage (before DC/DC converter)*
-- temperatures: switch on the separate temperature devices (below). They appear as
-  their own Victron *Temperature* nodes named *Buck-Boost Board*,
-  *Buck-Boost MOSFET 1*, *Buck-Boost MOSFET 2* and *Buck-Boost CAN sensor*, where
-  the measurement is simply called *Temperature*.
+- temperatures: the four *Custom* input nodes in the flow under `extras/` read
+  `/Temperature/Board`, `/Temperature/Mosfet1`, `/Temperature/Mosfet2` and
+  `/Temperature/CanSensor` straight from the driver's service, correctly named and
+  without any extra device. Alternatively switch on the separate temperature devices
+  (below); they appear as their own Victron *Temperature* nodes named *Buck-Boost
+  Board*, *Buck-Boost MOSFET 1*, *Buck-Boost MOSFET 2* and *Buck-Boost CAN sensor*.
 
 `/Dc/0/Temperature` is kept because it is the only temperature the GX device page
 draws — there it is labelled *Temperature*, which is accurate.
 
 ### Safety
 
-The driver sends **read commands only** (`FE 11` and `FE D0`). Write commands are
-deliberately not implemented: the converter accepts parameter changes *and firmware
+The driver sends **read commands only** (`FE 11`, `FE D0` and `FE CF`). Write commands
+are deliberately not implemented: the converter accepts parameter changes *and firmware
 updates* over the same interface, so a wrong address could alter charge parameters
 or push the device into its bootloader. Keep using TSConfig for configuration.
 
@@ -97,9 +99,15 @@ Then *Proceed* → *Install*.
 
 #### Manually
 
+Venus OS has no `git`. Fetch the branch as an archive, unpack it to `/data/TsBuckBoost`
+and run the setup script — which still needs SetupHelper installed, because it uses
+SetupHelper's helper resources for the install/uninstall logic:
+
 ```bash
 cd /data
-git clone https://github.com/mcgyver78/TsBuckBoost.git
+wget -O tsbb.tgz https://github.com/mcgyver78/TsBuckBoost/archive/refs/heads/latest.tar.gz
+tar xzf tsbb.tgz && rm tsbb.tgz
+mv TsBuckBoost-latest TsBuckBoost
 /data/TsBuckBoost/setup
 ```
 
@@ -107,6 +115,13 @@ git clone https://github.com/mcgyver78/TsBuckBoost.git
 
 - Venus OS with Python 3 and `pyserial` (both shipped with Venus OS)
 - The converter connected to the GX device with a USB-A to USB-B cable
+- A converter that answers the live query with the 22-byte block: every current
+  Victron Buck-Boost (25 A = TS4003, 50 A = TS800C5, 100 A = TS16002) and the
+  top systems TS 100, TS 1600, TS 800C2/C3 and TSEV1000. The older TS 200/400/800/800C
+  use a 19-byte block with a different layout; the driver recognises them and stops
+  with `model not supported` rather than publishing wrong numbers.
+- One Buck-Boost per GX device. Other CP210x-based USB devices may be present: the
+  driver asks every CP210x port for the converter id and leaves the others alone.
 
 ### Why alternator and not dcdc
 
@@ -206,19 +221,25 @@ The flow also ships a `victron-virtual-switch` named *Buck-Boost additional sens
 which puts a real switch on the GX display — that is the point of the flow for anyone
 who never opens a console. The trigger is kept separate from the action, so anything
 else can drive it too: the two inject nodes, a dashboard switch, or your own logic.
-The action understands `1`/`0`, `true`/`false` and `on`/`off`.
+The action understands `1`/`0`, `true`/`false`, `on`/`off` — as numbers, booleans or
+strings in any case. Anything else is ignored with a warning rather than guessed,
+because a guess would restart the driver and the display. The result is fed back into
+the virtual switch, so its position on the GX display always matches the setting, also
+after the inject nodes or the console were used.
 
-Requirements for the flow: the Victron Node-RED nodes (for the virtual switch) and a
-Node-RED instance allowed to run commands on the GX device — the built-in Node-RED
-of Venus OS is.
+Requirements for the flow: the Victron Node-RED nodes (for the virtual switch and the
+four input nodes) and a Node-RED instance allowed to run commands on the GX device —
+the built-in Node-RED of Venus OS is. The GUI restart tries `start-gui` first and falls
+back to `gui` on older Venus OS releases.
 
 ### Serial starter
 
 Venus OS attaches a service to every newly detected `ttyUSB` and probes it for
-VE.Direct and MK2. The bundled service releases the Buck-Boost port before starting
-(`stop-tty.sh`). The port is located through `/dev/serial/by-id/*CP210*` and then
-verified with the protocol's own type query — if a foreign device answers there, the
-driver exits instead of talking to it.
+VE.Direct and MK2. The driver therefore asks every `/dev/serial/by-id/*CP210*` port for
+the converter id first — a few times, because serial-starter may be poking the same
+port at that moment — and only the port that answers with a known id is taken away
+from serial-starter (`stop-tty.sh`). A foreign CP210x device keeps its own service.
+If no port answers, the driver exits and daemontools tries again ten seconds later.
 
 ### Protocol
 
@@ -228,7 +249,7 @@ asserted, no checksum.
 ```
 FE 11 <page> <addr> <len>   read
 FE 02 <page> <addr> <val>   write (not implemented here)
-FE D0                       live data block, 19 or 22 bytes
+FE D0                       live data block, 22 bytes (19 on old types, not decoded)
 FE CF                       auxiliary block, 4 bytes
 ```
 
@@ -286,9 +307,13 @@ I_out   = Σ max(0, (raw_k − zero_k) · factor_k)
 tail -f /var/log/TsBuckBoost/current
 ```
 
-`keine Antwort auf die Typabfrage` means something else is holding the port — see
-below. `unbekannte Geraetekennung` means the port was found but a different device
-answered; the driver stops on purpose rather than talking to it.
+`no converter answers, skipping` means the port was found but nothing with a known id
+answered — usually something else is holding the port, see below. `model not
+supported` means an old short-block converter answered (see Requirements). `short
+answer to the calibration query` means the start-up read was disturbed; the driver
+restarts rather than running with unknown zero points, and normally succeeds on the
+next attempt. `polls without an answer - restarting` means the port went dead, for
+instance after a USB re-enumeration; the restart reopens it.
 
 **Only one master per port.** The converter answers request by request, without
 framing or checksums. If a second process reads the same port at the same time, both
@@ -307,11 +332,18 @@ Start it again afterwards with `svc -u /service/TsBuckBoost`, restart it with
 
 **`ttyUSB` numbers move around.** After a reboot or a re-plug, `ttyUSB1` may well be a
 different device than yesterday. The driver therefore resolves its port through
-`/dev/serial/by-id/` and verifies it with the protocol's type query. Manual scripts
-should do the same:
+`/dev/serial/by-id/` and verifies it with the protocol's type query. To see the
+candidates the driver considers:
 
 ```bash
-PORT=$(/data/TsBuckBoost/find-port.sh); echo "$PORT"
+/data/TsBuckBoost/find-port.sh
+```
+
+For a manual test on one specific port, pass it as an argument — then the driver
+neither probes nor touches serial-starter:
+
+```bash
+python3 /data/TsBuckBoost/dbus-tsbb.py /dev/serial/by-id/usb-Silicon_Labs_CP2102N_…-port0
 ```
 
 **The current stays at zero.** That is usually correct: the driver reports current
@@ -322,13 +354,14 @@ installation switches a fan through pin 1, that fan is the most reliable indicat
 when the converter is actually working.
 
 **VRM shows the wrong device instance.** The instance is stored in
-`/Settings/Devices/tsbuckboost/ClassAndVrmInstance` and defaults to `dcdc:40`. If it
+`/Settings/Devices/tsbuckboost/ClassAndVrmInstance` and defaults to `alternator:40`. If it
 collides with another device, change it there and restart the service.
 
 ### Fan mount
 
 A 3D-printable mount for an 80 mm fan on the Buck-Boost 50 A, as STEP and STL, lives on
-the separate [`hardware`](../../tree/hardware) branch — it is kept out of the package so
+the separate [`hardware`](https://github.com/mcgyver78/TsBuckBoost/tree/hardware) branch
+— it is kept out of the package so
 SetupHelper does not copy it onto every GX device. The converter derates on temperature,
 so a slow-running fan keeps the charge current up in a warm compartment, which is also
 what makes the temperature readings above worth watching. Not required for the driver.
@@ -407,17 +440,20 @@ Beide Werte gibt es unter einem zweiten, korrekt benannten Pfad — nimm die:
 
 - Eingangsspannung: `/Dc/In/V`, in der Liste als *Input voltage (before DC/DC
   converter)*
-- Temperaturen: die separaten Temperaturgeräte einschalten (siehe unten). Sie
-  erscheinen als eigene Victron-*Temperature*-Nodes namens *Buck-Boost Board*,
-  *Buck-Boost MOSFET 1*, *Buck-Boost MOSFET 2* und *Buck-Boost CAN sensor*, dort
-  heißt der Messwert schlicht *Temperature*.
+- Temperaturen: die vier *Custom*-Eingangs-Nodes im Flow unter `extras/` lesen
+  `/Temperature/Board`, `/Temperature/Mosfet1`, `/Temperature/Mosfet2` und
+  `/Temperature/CanSensor` direkt aus dem Dienst des Treibers — korrekt benannt und
+  ohne zusätzliches Gerät. Alternativ die separaten Temperaturgeräte einschalten
+  (siehe unten); sie erscheinen als eigene Victron-*Temperature*-Nodes namens
+  *Buck-Boost Board*, *Buck-Boost MOSFET 1*, *Buck-Boost MOSFET 2* und *Buck-Boost
+  CAN sensor*.
 
 `/Dc/0/Temperature` bleibt trotzdem bestehen, weil es die einzige Temperatur ist,
 die die GX-Geräteseite zeichnet — dort steht *Temperature*, und das stimmt.
 
 ### Sicherheit
 
-Der Treiber sendet **ausschließlich Lesekommandos** (`FE 11` und `FE D0`).
+Der Treiber sendet **ausschließlich Lesekommandos** (`FE 11`, `FE D0` und `FE CF`).
 Schreibende Kommandos sind bewusst nicht implementiert: Der Wandler nimmt über
 dieselbe Schnittstelle Parameteränderungen *und Firmware-Updates* entgegen, und eine
 falsch getroffene Adresse könnte Ladeparameter verstellen oder das Gerät in den
@@ -440,9 +476,15 @@ Anschließend *Proceed* → *Install*.
 
 #### Manuell
 
+Venus OS hat kein `git`. Den Branch als Archiv holen, nach `/data/TsBuckBoost`
+entpacken und das Setup-Skript starten — das braucht trotzdem einen installierten
+SetupHelper, weil es dessen Hilfsroutinen für Installation und Deinstallation nutzt:
+
 ```bash
 cd /data
-git clone https://github.com/mcgyver78/TsBuckBoost.git
+wget -O tsbb.tgz https://github.com/mcgyver78/TsBuckBoost/archive/refs/heads/latest.tar.gz
+tar xzf tsbb.tgz && rm tsbb.tgz
+mv TsBuckBoost-latest TsBuckBoost
 /data/TsBuckBoost/setup
 ```
 
@@ -450,6 +492,15 @@ git clone https://github.com/mcgyver78/TsBuckBoost.git
 
 - Venus OS mit Python 3 und `pyserial` (beides in Venus OS enthalten)
 - Der Wandler hängt per USB-A-auf-USB-B-Kabel am GX-Gerät
+- Ein Wandler, der die Live-Abfrage mit dem 22-Byte-Block beantwortet: jeder aktuelle
+  Victron Buck-Boost (25 A = TS4003, 50 A = TS800C5, 100 A = TS16002) sowie die
+  top-systems-Typen TS 100, TS 1600, TS 800C2/C3 und TSEV1000. Die älteren
+  TS 200/400/800/800C liefern einen 19-Byte-Block mit anderem Aufbau; der Treiber
+  erkennt sie und beendet sich mit `model not supported`, statt falsche Zahlen zu
+  veröffentlichen.
+- Ein Buck-Boost je GX-Gerät. Andere USB-Geräte mit CP210x-Chip dürfen daneben
+  hängen: Der Treiber fragt jeden CP210x-Port nach der Gerätekennung und lässt die
+  anderen in Ruhe.
 
 ### Warum alternator und nicht dcdc
 
@@ -553,12 +604,18 @@ Im Flow steckt außerdem ein `victron-virtual-switch` namens *Buck-Boost additio
 sensors*, der einen echten Schalter auf dem GX-Display anlegt — dafür ist der Flow
 eigentlich da: für alle, die keine Konsole öffnen wollen. Auslöser und Aktion sind
 bewusst getrennt, damit auch anderes davorhängen kann: die beiden Inject-Nodes, ein
-Dashboard-Element oder eigene Logik. Die Aktion versteht `1`/`0`, `true`/`false`
-und `on`/`off`.
+Dashboard-Element oder eigene Logik. Die Aktion versteht `1`/`0`, `true`/`false` und
+`on`/`off` — als Zahl, Boolean oder Zeichenkette in beliebiger Schreibweise. Alles
+andere wird mit einer Warnung ignoriert statt geraten, denn ein Ratefehler würde
+Treiber und Display neu starten. Das Ergebnis wird in den virtuellen Schalter
+zurückgespielt, damit seine Stellung auf dem GX-Display immer der Einstellung
+entspricht — auch nach Inject-Nodes oder der Konsole.
 
-Voraussetzungen für den Flow: die Victron-Nodes für Node-RED (wegen des virtuellen
-Schalters) und eine Node-RED-Instanz, die Befehle auf dem GX-Gerät ausführen darf —
-das mitgelieferte Node-RED von Venus OS darf das.
+Voraussetzungen für den Flow: die Victron-Nodes für Node-RED (für den virtuellen
+Schalter und die vier Eingangs-Nodes) und eine Node-RED-Instanz, die Befehle auf dem
+GX-Gerät ausführen darf — das mitgelieferte Node-RED von Venus OS darf das. Der
+GUI-Neustart versucht zuerst `start-gui` und fällt auf älteren Venus-Versionen auf
+`gui` zurück.
 
 Beschriftungen und Meldungen im Flow sind bewusst englisch, passend zum Rest des
 Pakets und zur Venus-Oberfläche.
@@ -566,11 +623,13 @@ Pakets und zur Venus-Oberfläche.
 ### Serial-Starter
 
 Venus OS hängt an jedes neu erkannte `ttyUSB` automatisch einen Dienst und probiert
-VE.Direct und MK2 durch. Der mitgelieferte Dienst gibt den Port des Buck-Boost vor
-dem Start wieder frei (`stop-tty.sh`). Der Port wird über
-`/dev/serial/by-id/*CP210*` gesucht und anschließend über die Typabfrage des
-Protokolls verifiziert — antwortet dort ein fremdes Gerät, beendet sich der Treiber,
-ohne zu stören.
+VE.Direct und MK2 durch. Der Treiber fragt deshalb zuerst jeden
+`/dev/serial/by-id/*CP210*`-Port nach der Gerätekennung — mehrmals, weil der
+serial-starter im selben Moment auf demselben Port stochern kann — und nur der Port,
+der mit einer bekannten Kennung antwortet, wird dem serial-starter entzogen
+(`stop-tty.sh`). Ein fremdes CP210x-Gerät behält seinen eigenen Dienst. Antwortet
+kein Port, beendet sich der Treiber, und daemontools versucht es zehn Sekunden später
+erneut.
 
 ### Protokoll
 
@@ -580,7 +639,7 @@ aktiv, keine Prüfsumme.
 ```
 FE 11 <page> <addr> <len>   Lesen
 FE 02 <page> <addr> <val>   Schreiben (hier nicht implementiert)
-FE D0                       Live-Datenblock, 19 oder 22 Byte
+FE D0                       Live-Datenblock, 22 Byte (19 bei alten Typen, nicht dekodiert)
 FE CF                       Zusatzblock, 4 Byte
 ```
 
@@ -639,10 +698,14 @@ I_aus   = Σ max(0, (roh_k − Nullpunkt_k) · Faktor_k)
 tail -f /var/log/TsBuckBoost/current
 ```
 
-`keine Antwort auf die Typabfrage` heißt, dass jemand anderes den Port hält — siehe
-unten. `unbekannte Geraetekennung` heißt, dass der Port gefunden wurde, dort aber ein
-fremdes Gerät antwortet; der Treiber bricht dann absichtlich ab, statt darauf
-herumzureden.
+`no converter answers, skipping` heißt, dass der Port gefunden wurde, dort aber nichts
+mit bekannter Kennung antwortet — meist hält jemand anderes den Port, siehe unten.
+`model not supported` heißt, dass ein alter Kurzblock-Wandler geantwortet hat (siehe
+Voraussetzungen). `short answer to the calibration query` heißt, dass das Auslesen
+beim Start gestört wurde; der Treiber startet dann neu, statt mit unbekannten
+Nullpunkten zu laufen, und hat beim nächsten Versuch normalerweise Erfolg. `polls
+without an answer - restarting` heißt, dass der Port tot ist, etwa nach einer
+USB-Neuenumeration; der Neustart öffnet ihn neu.
 
 **Immer nur ein Master auf dem Port.** Der Wandler antwortet Frage für Frage, ohne
 Rahmen und ohne Prüfsumme. Liest ein zweiter Prozess gleichzeitig mit, bekommen beide
@@ -662,10 +725,17 @@ Danach wieder starten mit `svc -u /service/TsBuckBoost`, neu starten mit
 **`ttyUSB`-Nummern wandern.** Nach einem Neustart oder Umstecken kann `ttyUSB1` ein
 ganz anderes Gerät sein als gestern. Der Treiber löst seinen Port deshalb über
 `/dev/serial/by-id/` auf und verifiziert ihn über die Typabfrage des Protokolls.
-Manuelle Skripte sollten das genauso halten:
+Die Kandidaten, die der Treiber in Betracht zieht, zeigt:
 
 ```bash
-PORT=$(/data/TsBuckBoost/find-port.sh); echo "$PORT"
+/data/TsBuckBoost/find-port.sh
+```
+
+Für einen manuellen Test an einem bestimmten Port diesen als Argument übergeben — dann
+sucht der Treiber nicht und rührt den serial-starter nicht an:
+
+```bash
+python3 /data/TsBuckBoost/dbus-tsbb.py /dev/serial/by-id/usb-Silicon_Labs_CP2102N_…-port0
 ```
 
 **Der Strom bleibt auf null.** Das ist meistens richtig so: Der Treiber meldet Strom
@@ -676,13 +746,14 @@ bleibt, löst ihn nicht aus. Wer über Pin 1 einen Lüfter schaltet, hat mit des
 Geräusch die zuverlässigste Anzeige dafür, wann der Wandler wirklich arbeitet.
 
 **VRM zeigt die falsche Geräteinstanz.** Sie steht in
-`/Settings/Devices/tsbuckboost/ClassAndVrmInstance` und ist mit `dcdc:40` vorbelegt.
+`/Settings/Devices/tsbuckboost/ClassAndVrmInstance` und ist mit `alternator:40` vorbelegt.
 Bei einer Kollision dort ändern und den Dienst neu starten.
 
 ### Lüfterhalterung
 
 Eine druckbare Halterung für einen 80-mm-Lüfter am Buck-Boost 50 A, als STEP und STL,
-liegt im eigenen Branch [`hardware`](../../tree/hardware) — bewusst außerhalb des Pakets,
+liegt im eigenen Branch [`hardware`](https://github.com/mcgyver78/TsBuckBoost/tree/hardware)
+— bewusst außerhalb des Pakets,
 damit SetupHelper sie nicht auf jedes GX-Gerät kopiert. Der Wandler regelt bei Wärme
 zurück, ein langsam laufender Lüfter hält den Ladestrom in einem warmen Schacht also oben
 und macht die Temperaturwerte von oben erst richtig interessant. Für den Treiber wird sie

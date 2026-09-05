@@ -1,3 +1,35 @@
+v1.18 - results of a four-way code review
+  driver: old short-block types (TS200/400/800/800C) are rejected at start-up with
+  "model not supported" instead of failing on every poll; the current Victron
+  units are unaffected
+  driver: a short or missing calibration answer at start-up is now fatal and
+  triggers a restart - before, zero points of 0 were silently assumed, which
+  turns 27 A into 98 A on the display and in the energy counter
+  driver: any error inside the poll ends the process so daemontools restarts it,
+  instead of GLib silently dropping the timer and leaving a frozen service
+  driver: five polls without an answer restart the service, which reopens a port
+  whose descriptor died in a USB re-enumeration; on loss of contact all readings
+  are invalidated, not just current and power
+  driver: high temperature alarm now really steps back from alarm to warning
+  5 K below the alarm threshold, as documented
+  driver: input voltage of the TSEV1000 uses TSConfig's divider 0.13
+  driver: port discovery probes every CP210x port with the type query and only
+  releases the one that answers from serial-starter; a foreign CP210x device
+  keeps its service. Passing a port as argument skips probing and stop-tty
+  flow: temperature inputs use the service identifier format of
+  node-red-contrib-victron 1.7 (com.victronenergy.alternator/40) - the earlier
+  dotted form went through a legacy path that never delivered the cached value,
+  which is why the nodes showed disconnected for minutes
+  flow: on/off/true/false accepted as strings in any case, anything else is
+  ignored with a warning instead of being treated as "off"
+  flow: the result is fed back into the virtual switch, so its position matches
+  the setting after inject nodes or console use; stderr shows up in the status;
+  GUI restart falls back to /service/gui on older Venus OS
+  setup, run, find-port.sh: English, and setup no longer claims dcdc
+  ReadMe (de/en): supported models, one converter per GX, manual install without
+  git, current log strings in troubleshooting, default instance alternator:40,
+  FE CF listed under Safety, absolute link to the hardware branch
+
 v1.17
   Node-RED flow: the four temperature inputs had "only changes" set, so they
   stayed silent - and showed disconnected - until a reading actually moved,

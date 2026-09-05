@@ -1,19 +1,19 @@
 #!/bin/bash
 
-# TsBuckBoost - Venus OS Treiber fuer den Victron Buck-Boost DC-DC Wandler
+# TsBuckBoost - Venus OS driver for the Victron Buck-Boost DC-DC converter
 # (OEM: top systems TS 400 / TS 800 / TS 1600)
 #
-# Der Wandler hat keinen VE.Direct-Port. Dieser Treiber liest sein proprietaeres
-# USB-Serial-Protokoll und meldet ihn als com.victronenergy.dcdc auf dem D-Bus an,
-# so dass er wie ein Orion XS im GX-Display, in VRM und in Node-RED erscheint.
+# The converter has no VE.Direct port. This driver reads its proprietary
+# USB-serial protocol and registers it on D-Bus as com.victronenergy.alternator,
+# so it shows up like an Orion XS on the GX display, in VRM and in Node-RED.
 #
-# Es werden ausschliesslich Lesekommandos an den Wandler geschickt.
+# Only read commands are ever sent to the converter.
 #
-# Der Treiber selbst liegt in diesem Paketverzeichnis und wird vom Dienst
-# services/TsBuckBoost gestartet - es werden keine Venus-OS-Dateien ersetzt.
+# The driver lives in this package directory and is started by the service in
+# services/TsBuckBoost - no Venus OS files are replaced.
 
-# CommonResources fragt nach Installieren/Deinstallieren, fuehrt es aus und kehrt
-# nicht hierher zurueck.
+# CommonResources prompts for install/uninstall, performs it and does not
+# return here.
 standardPromptAndActions='yes'
 
 #### following line incorporates helper resources into this script

@@ -5,14 +5,18 @@ TS 400/800/1600) on the Venus OS D-Bus as com.victronenergy.alternator.
 
 The converter has no VE.Direct port; its USB serial protocol was reconstructed
 from the Windows tool TSConfig v2.4.4. Only read commands are ever sent
-(FE 11 = read, FE D0 = live block). Write commands are deliberately not
-implemented — the same interface accepts parameter changes and firmware
-updates, so a wrong address could alter charge settings or enter the bootloader.
+(FE 11 = read, FE D0 = live block, FE CF = auxiliary block). Write commands
+are deliberately not implemented — the same interface accepts parameter changes
+and firmware updates, so a wrong address could alter charge settings or enter
+the bootloader.
 
-Called without an argument, the port is looked up under /dev/serial/by-id/.
+Called without an argument, every CP210x port under /dev/serial/by-id/ is
+probed with the type query; the first one that answers with a known converter
+id is used, and only that one is taken away from serial-starter.
 """
 import glob
 import os
+import subprocess
 import sys
 import time
 
@@ -29,9 +33,14 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.17"
+VERSION = "1.18"
 POLL_MS = 2000
 FALLBACK_INSTANCE = 40
+# After this many consecutive failed polls the process exits and daemontools
+# restarts it — that reopens the port, which is the only cure for a file
+# descriptor that went dead when the USB device re-enumerated.
+MAX_READ_ERRORS = 5
+STOP_TTY = "/opt/victronenergy/serial-starter/stop-tty.sh"
 # systemcalc sums /Dc/Alternator/Power over com.victronenergy.alternator only —
 # com.victronenergy.dcdc never reaches the overview page. Victron files DC-DC
 # converters under alternator as well ("This also includes other DC/DC
@@ -67,8 +76,15 @@ IDS = {54: "TS800", 63: "TS400", 71: "TS800C", 73: "TS200", 82: "TS100",
 INTERNAL = {"TS800C5": "TS800C3", "TS4003": "TS4002"}
 # these types compute the output voltage through the shunt factor
 SPFACTOR_VOUT = {"TS800C3", "TSEV1000", "TS16002"}
+# Input voltage divider per type; TSConfig uses 0.13 for the TSEV1000 only
+VIN_DIVIDER = {"TSEV1000": 0.13}
+VIN_DIVIDER_DEFAULT = 0.0636
+# Types that answer FE D0 with the 22-byte block this driver decodes. The
+# older types (TS200/400/800/800C, ids 73/63/54/71) use a 19-byte block with
+# a different layout; they are rejected at start-up rather than misread.
 LONG_BLOCK = {"TS1600", "TS16002", "TS800C2", "TS800C3", "TSEV1000",
               "TS4002", "TS100"}
+BLOCK_LEN = 22
 
 
 def log(msg):
@@ -106,11 +122,71 @@ def private_bus():
         return dbus.bus.BusConnection(addr)
 
 
-def find_port():
+def candidate_ports():
+    """All CP210x ports by stable name, in a deterministic order."""
+    hits = set()
     for pattern in ("/dev/serial/by-id/*CP210*", "/dev/serial/by-id/*cp210*"):
-        hits = sorted(glob.glob(pattern))
-        if hits:
-            return hits[0]
+        hits.update(glob.glob(pattern))
+    return sorted(hits)
+
+
+def probe_identity(port, attempts=3):
+    """Ask a port for the converter id without taking it away from anyone.
+
+    serial-starter may be probing the same port at the same time, which can
+    garble a single answer, so the query is repeated a few times. Returns the
+    device id, or None if nothing known answers.
+    """
+    for _ in range(attempts):
+        try:
+            ser = serial.Serial(port, 9600, 8, "N", 1, timeout=0.5)
+        except (OSError, serial.SerialException):
+            return None
+        try:
+            try:
+                ser.dtr = True
+                ser.rts = True
+            except OSError:
+                pass
+            time.sleep(0.3)
+            ser.reset_input_buffer()
+            ser.write(bytes([0xFE, 0x11, 0x1F, 0xF2, 0x01]))   # read command
+            ser.flush()
+            r = ser.read(1)
+            if r and r[0] in IDS:
+                return r[0]
+        finally:
+            ser.close()
+        time.sleep(1.0)
+    return None
+
+
+def release_from_serial_starter(port):
+    """Tell serial-starter to leave this tty alone. Only for the port that
+    actually answered as a converter — a foreign CP210x device must keep its
+    own service."""
+    if not os.path.exists(STOP_TTY):
+        return
+    tty = os.path.basename(os.path.realpath(port))
+    try:
+        subprocess.call([STOP_TTY, tty], timeout=15)
+        log("released %s from serial-starter" % tty)
+        time.sleep(1.0)
+    except Exception as e:
+        log("could not run stop-tty.sh for %s: %s" % (tty, e))
+
+
+def find_port():
+    ports = candidate_ports()
+    if not ports:
+        log("no CP210x port found under /dev/serial/by-id/")
+        return None
+    for port in ports:
+        dev_id = probe_identity(port)
+        if dev_id is not None:
+            log("%s answers as %s (id %d)" % (port, IDS[dev_id], dev_id))
+            return port
+        log("%s: no converter answers, skipping" % port)
     return None
 
 
@@ -161,21 +237,39 @@ class Converter(object):
             raise IOError("unknown device id %d - not a TS converter?" % self.device_id)
         self.name = IDS[self.device_id]
         self.ctype = INTERNAL.get(self.name, self.name)
-        self.block_len = 22 if self.ctype in LONG_BLOCK else 19
+        if self.ctype not in LONG_BLOCK:
+            raise IOError("%s (id %d) uses the short data block, which this "
+                          "driver does not decode - model not supported"
+                          % (self.name, self.device_id))
+        self.block_len = BLOCK_LEN
+        self.vin_divider = VIN_DIVIDER.get(self.ctype, VIN_DIVIDER_DEFAULT)
 
+        # Every calibration value below feeds the current calculation. A short
+        # answer is not "use a default", it is "we do not know" - and a wrong
+        # zero point turns 27 A into 98 A on the display and in the energy
+        # counter. So each one is fatal; daemontools restarts us and the next
+        # attempt usually succeeds.
         ina = self._read(0x1F, 0xF5, 1)
-        self.ina = ina[0] if ina else 1
+        if len(ina) != 1:
+            raise IOError("no answer to the current-sense chip query")
+        self.ina = ina[0]
         self.spfactor = 0.003125 if self.ina == 2 else 0.00125
 
         e0 = self._read(0x1F, 0xE0, 16)
-        self.sf = [e0[0] / 1000.0, e0[1] / 1000.0, e0[2] / 1000.0] if len(e0) >= 3 else [0.0, 0.0, 0.0]
+        if len(e0) < 3:
+            raise IOError("short answer to the current-factor query (%d bytes)" % len(e0))
+        self.sf = [e0[0] / 1000.0, e0[1] / 1000.0, e0[2] / 1000.0]
+        if not all(self.sf):
+            raise IOError("current factors read as zero: %s" % self.sf)
 
         cal = b""
         for length in (0x40, 0x30, 0x20):
             cal = self._read(0x1F, 0x2A, length, 2.5)
             if len(cal) == length:
                 break
-        self.offsets = list(cal[41:44]) if len(cal) >= 44 else [0, 0, 0]
+        if len(cal) < 44:
+            raise IOError("short answer to the calibration query (%d bytes)" % len(cal))
+        self.offsets = list(cal[41:44])
 
         fw = self._read(0x00, 0xD0, 8)
         # TSConfig shows the firmware as text ("ts16v1.2"), so these eight bytes
@@ -209,7 +303,7 @@ class Converter(object):
         v_raw = b[10] * 256 + b[11]
         v_out = v_raw * self.spfactor if self.ctype in SPFACTOR_VOUT \
             else v_raw / 1024.0 * 2.0 / 0.0636
-        v_in = (b[12] * 256 + b[13]) / 1024.0 * 2.0 / 0.0636
+        v_in = (b[12] * 256 + b[13]) / 1024.0 * 2.0 / self.vin_divider
         channels = [round(max(0.0, (b[2 * k] * 256 + b[2 * k + 1] - self.offsets[k])
                                 * self.sf[k]), 2) for k in range(3)]
         return {"v_in": round(v_in, 2),
@@ -279,6 +373,7 @@ class Driver(object):
         self.last_tick = time.time()
         self.last_save = time.time()
         self.temp_alarm = 0
+        self.read_errors = 0
         svcname = "com.victronenergy.%s.tsbb_%s" % (
             SERVICE_CLASS, os.path.basename(os.path.realpath(port)))
         try:
@@ -378,20 +473,55 @@ class Driver(object):
         return svc
 
     def update(self):
+        """GLib timer callback. Anything that escapes here would make GLib
+        drop the timer silently and leave a process that looks alive but never
+        updates again - so every failure ends the process instead, and
+        daemontools restarts it."""
+        try:
+            return self._update()
+        except SystemExit:
+            raise
+        except Exception as e:
+            log("update failed: %r - restarting the service" % (e,))
+            sys.exit(1)
+
+    def _mark_disconnected(self):
+        s = self.svc
+        s["/Connected"] = 0
+        s["/State"] = 0
+        s["/Dc/0/Current"] = 0
+        s["/Dc/0/Power"] = 0
+        # Old readings must not linger on the bus as if they were current
+        for p in ("/Dc/0/Voltage", "/Dc/In/V", "/Dc/1/Voltage", "/Dc/0/Temperature",
+                  "/Temperature/Board", "/Temperature/Mosfet1",
+                  "/Temperature/Mosfet2", "/Temperature/CanSensor",
+                  "/Current/Channel1", "/Current/Channel2", "/Current/Channel3"):
+            s[p] = None
+        for svc in self.temp_services.values():
+            svc["/Temperature"] = None
+            svc["/Status"] = 1
+            svc["/Connected"] = 0
+
+    def _update(self):
         try:
             d = self.conv.read()
         except Exception as e:
             log("read error: %s" % e)
             d = None
         if d is None:
-            self.svc["/Connected"] = 0
-            self.svc["/State"] = 0
-            self.svc["/Dc/0/Current"] = 0
-            self.svc["/Dc/0/Power"] = 0
+            self.read_errors += 1
+            self._mark_disconnected()
             if not os.path.exists(self.port):
                 log("port disappeared - restarting the service")
                 sys.exit(1)                    # daemontools starts us again
+            if self.read_errors >= MAX_READ_ERRORS:
+                # The by-id link may still exist while our descriptor is dead
+                # (USB re-enumeration). Reopening is the only cure.
+                log("%d polls without an answer - restarting the service"
+                    % self.read_errors)
+                sys.exit(1)
             return True
+        self.read_errors = 0
         s = self.svc
         s["/Connected"] = 1
         s["/Dc/0/Voltage"] = d["v_out"]
@@ -429,14 +559,19 @@ class Driver(object):
                 except Exception as e:
                     log("energy counter not stored: %s" % e)
 
+        # Two-level alarm with hysteresis: each level is entered at its
+        # threshold and left again TEMP_HYSTERESIS below it.
+        #   0 -> 1 at 75, 1 -> 0 below 70;  1 -> 2 at 85, 2 -> 1 below 80
         if hottest >= TEMP_ALARM:
             self.temp_alarm = 2
+        elif self.temp_alarm == 2:
+            self.temp_alarm = 2 if hottest >= TEMP_ALARM - TEMP_HYSTERESIS else 1
         elif hottest >= TEMP_WARNING:
-            self.temp_alarm = max(1, 1 if self.temp_alarm < 2 else 2)
-        elif hottest < TEMP_WARNING - TEMP_HYSTERESIS:
-            self.temp_alarm = 0
-        elif self.temp_alarm == 2 and hottest < TEMP_ALARM - TEMP_HYSTERESIS:
             self.temp_alarm = 1
+        elif self.temp_alarm == 1:
+            self.temp_alarm = 1 if hottest >= TEMP_WARNING - TEMP_HYSTERESIS else 0
+        else:
+            self.temp_alarm = 0
         s["/Alarms/HighTemperature"] = self.temp_alarm
 
         for key, field, _label, _inst in TEMP_SENSORS:
@@ -462,12 +597,16 @@ class Driver(object):
 
 def main():
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-    port = sys.argv[1] if len(sys.argv) > 1 else find_port()
-    if not port:
-        log("no CP210x port found under /dev/serial/by-id/")
-        time.sleep(10)
-        sys.exit(1)
-    log("dbus-tsbb %s starting, port %s" % (VERSION, port))
+    log("dbus-tsbb %s starting" % VERSION)
+    if len(sys.argv) > 1:
+        port = sys.argv[1]                  # explicit port: no probing, no stop-tty
+    else:
+        port = find_port()
+        if not port:
+            time.sleep(10)                  # do not hammer daemontools
+            sys.exit(1)
+        release_from_serial_starter(port)
+    log("using port %s" % port)
     driver = Driver(port)
     driver.update()
     GLib.timeout_add(POLL_MS, driver.update)
