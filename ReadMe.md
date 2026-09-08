@@ -241,6 +241,18 @@ port at that moment — and only the port that answers with a known id is taken 
 from serial-starter (`stop-tty.sh`). A foreign CP210x device keeps its own service.
 If no port answers, the driver exits and daemontools tries again ten seconds later.
 
+A port that another driver has already claimed is not even asked. serial-starter
+keeps a node under `/dev/serial-starter` for every tty it still manages, and a
+driver claiming a port removes it — so a candidate without that node is taken,
+not free, and writing an identification query into it would garble that driver's
+traffic. A converter that has just been plugged in is always under
+serial-starter, so nothing that should be found is lost.
+
+The port is opened exclusively for the same reason, and after two polls without
+an answer it is taken back from serial-starter once: another driver looking for
+its own hardware may have handed it back at any moment, and one call is cheaper
+than the service restart that follows five failed polls.
+
 ### Protocol
 
 Reconstructed from TSConfig v2.4.4 (VB.NET, not obfuscated). 9600 8N1, DTR and RTS
@@ -630,6 +642,19 @@ der mit einer bekannten Kennung antwortet, wird dem serial-starter entzogen
 (`stop-tty.sh`). Ein fremdes CP210x-Gerät behält seinen eigenen Dienst. Antwortet
 kein Port, beendet sich der Treiber, und daemontools versucht es zehn Sekunden später
 erneut.
+
+Einen Port, den ein anderer Treiber bereits für sich beansprucht hat, fragt er
+gar nicht erst. Der serial-starter führt unter `/dev/serial-starter` für jedes
+tty, das er noch verwaltet, einen Eintrag; wer einen Port übernimmt, entfernt
+ihn. Ein Kandidat ohne diesen Eintrag ist also belegt und nicht frei, und eine
+Kennungsabfrage hineinzuschreiben würde den Verkehr dieses Treibers stören. Ein
+frisch eingesteckter Wandler steht immer unter serial-starter — es geht also
+nichts verloren.
+
+Aus demselben Grund wird der Port exklusiv geöffnet, und nach zwei Abfragen ohne
+Antwort einmal zurückgeholt: ein anderer Treiber auf der Suche nach seiner
+eigenen Hardware kann ihn jederzeit an den serial-starter zurückgegeben haben,
+und ein Aufruf ist billiger als der Dienstneustart nach fünf Fehlversuchen.
 
 ### Protokoll
 

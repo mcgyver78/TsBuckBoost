@@ -33,7 +33,7 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.18"
+VERSION = "1.19"
 POLL_MS = 2000
 FALLBACK_INSTANCE = 40
 # After this many consecutive failed polls the process exits and daemontools
@@ -41,6 +41,13 @@ FALLBACK_INSTANCE = 40
 # descriptor that went dead when the USB device re-enumerated.
 MAX_READ_ERRORS = 5
 STOP_TTY = "/opt/victronenergy/serial-starter/stop-tty.sh"
+# serial-starter keeps a node here for every tty it still manages, and a driver
+# that claims a port removes it. A candidate without that node is therefore not
+# free but taken - by a driver that will keep talking on it. Probing it would
+# garble that driver's traffic; on a Cerbo with an Autoterm heater sharing its
+# port with Venus probe services, the heater answered 2 of 30 queries instead
+# of 29 of 29.
+SERIAL_STARTER_DIR = "/dev/serial-starter"
 # systemcalc sums /Dc/Alternator/Power over com.victronenergy.alternator only —
 # com.victronenergy.dcdc never reaches the overview page. Victron files DC-DC
 # converters under alternator as well ("This also includes other DC/DC
@@ -176,12 +183,29 @@ def release_from_serial_starter(port):
         log("could not run stop-tty.sh for %s: %s" % (tty, e))
 
 
+def owned_by_another_driver(port):
+    """True if some other driver has already claimed this port for itself.
+
+    Where /dev/serial-starter does not exist (not a GX, or an older Venus)
+    there is nothing to conclude and the port is probed as before.
+    """
+    if not os.path.isdir(SERIAL_STARTER_DIR):
+        return False
+    tty = os.path.basename(os.path.realpath(port))
+    return not os.path.exists(os.path.join(SERIAL_STARTER_DIR, tty))
+
+
 def find_port():
     ports = candidate_ports()
     if not ports:
         log("no CP210x port found under /dev/serial/by-id/")
         return None
     for port in ports:
+        if owned_by_another_driver(port):
+            # A converter that has just been plugged in is always under
+            # serial-starter, so nothing that should be found is lost here.
+            log("%s belongs to another driver, skipping" % port)
+            continue
         dev_id = probe_identity(port)
         if dev_id is not None:
             log("%s answers as %s (id %d)" % (port, IDS[dev_id], dev_id))
@@ -195,7 +219,14 @@ class Converter(object):
 
     def __init__(self, port):
         self.port = port
-        self.ser = serial.Serial(port, 9600, 8, "N", 1, timeout=0.5)
+        # Exclusive, so that no other driver opens this port underneath us
+        # while looking for its own hardware. pyserial before 3.3 does not
+        # know the argument; then it runs without.
+        try:
+            self.ser = serial.Serial(port, 9600, 8, "N", 1, timeout=0.5,
+                                     exclusive=True)
+        except TypeError:
+            self.ser = serial.Serial(port, 9600, 8, "N", 1, timeout=0.5)
         try:
             self.ser.dtr = True
             self.ser.rts = True
@@ -514,6 +545,13 @@ class Driver(object):
             if not os.path.exists(self.port):
                 log("port disappeared - restarting the service")
                 sys.exit(1)                    # daemontools starts us again
+            # The most likely reason for silence is not the converter but
+            # another driver that has handed this port back to serial-starter
+            # while looking for its own hardware - after which the Venus probe
+            # services are on the line again. Taking it back costs one call
+            # and is cheaper than the restart below.
+            if self.read_errors == 2:
+                release_from_serial_starter(self.port)
             if self.read_errors >= MAX_READ_ERRORS:
                 # The by-id link may still exist while our descriptor is dead
                 # (USB re-enumeration). Reopening is the only cure.
