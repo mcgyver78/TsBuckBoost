@@ -183,8 +183,49 @@ def release_from_serial_starter(port):
         log("could not run stop-tty.sh for %s: %s" % (tty, e))
 
 
+def port_open_elsewhere(tty):
+    """True if a process other than this one holds /dev/<tty> open.
+
+    Read from /proc, the only place on Venus that knows. Anything unreadable
+    is skipped rather than guessed at: a port is declared busy on evidence,
+    never on the absence of it.
+    """
+    ziel = os.path.realpath(os.path.join("/dev", tty))
+    selbst = str(os.getpid())
+    try:
+        pids = os.listdir("/proc")
+    except OSError:
+        return False
+    for pid in pids:
+        if not pid.isdigit() or pid == selbst:
+            continue
+        verzeichnis = "/proc/%s/fd" % pid
+        try:
+            deskriptoren = os.listdir(verzeichnis)
+        except OSError:
+            continue
+        for fd in deskriptoren:
+            try:
+                if os.path.realpath(os.path.join(verzeichnis, fd)) == ziel:
+                    return True
+            except OSError:
+                continue
+    return False
+
+
 def owned_by_another_driver(port):
     """True if some other driver has already claimed this port for itself.
+
+    While serial-starter keeps a node for the tty, the port is serial-
+    starter's and ours to take. Without the node it is claimed - but not
+    necessarily by somebody else: THIS driver removes the node too when it
+    claims a port, and it does not come back until the next reboot. Reading
+    "no node" as "foreign" locks the driver out of its own port after every
+    restart of the service; that happened to the MaxxFan driver, whose card
+    disappeared from a customer system for exactly this reason.
+
+    So a port without a node is only left alone when another process really
+    holds it open - a fact, readable in /proc, instead of a guess.
 
     Where /dev/serial-starter does not exist (not a GX, or an older Venus)
     there is nothing to conclude and the port is probed as before.
@@ -192,7 +233,9 @@ def owned_by_another_driver(port):
     if not os.path.isdir(SERIAL_STARTER_DIR):
         return False
     tty = os.path.basename(os.path.realpath(port))
-    return not os.path.exists(os.path.join(SERIAL_STARTER_DIR, tty))
+    if os.path.exists(os.path.join(SERIAL_STARTER_DIR, tty)):
+        return False
+    return port_open_elsewhere(tty)
 
 
 def find_port():
