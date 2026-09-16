@@ -173,8 +173,8 @@ gehört an den Anfang.
 `~/Projekte` lag bis zum 16.09.2026 ein zweiter, alter Klon: Stand v1.18,
 single-branch, seit dem 05.09. nie gefetcht. Eine Übergabe ist dort gelandet,
 weil der Pfad aus dem deutschen Wort geraten und nicht geprüft war. Der alte
-Klon heißt jetzt `~/Projekte/TsBuckBoost.alter-klon-2026-09-16`; `~/Projekte`
-ist das alte Dokumentenverzeichnis und enthält keinen Code.
+Klon ist am selben Tag gelöscht worden, nachdem alles daraus hier angekommen
+war; `~/Projekte` ist das alte Dokumentenverzeichnis und enthält keinen Code.
 
 **`changes` wird abgeschnitten statt ergänzt.** Zweimal passiert: f797818
 (v1.19) ließ von 6660 B nur 976 B übrig, c095815 reparierte es auf 7636 B, und
