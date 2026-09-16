@@ -33,7 +33,7 @@ for _p in ("/opt/victronenergy/dbus-systemcalc-py/ext/velib_python",
         break
 from vedbus import VeDbusService  # noqa: E402
 
-VERSION = "1.19"
+VERSION = "1.20"
 POLL_MS = 2000
 FALLBACK_INSTANCE = 40
 # After this many consecutive failed polls the process exits and daemontools
