@@ -144,10 +144,22 @@ nicht änderbar, nur umgehbar, indem man andere Pfade nimmt.
 README.md
 fanmount_80mm_BuckBoost50A.step / .stl      Lüfterhalter 80 mm
 fanwiring_dcssr_BuckBoost.pdf / .svg        Lüfter über SSR, GPIO-gesteuert
+cad/                                        CadQuery-Quellen, DESIGN-NOTES.md
+cad/out/                                    erzeugte STEP/STL
 ```
 
-Noch nicht committet, liegt aber vor: der 92-mm-Halter für den
-Sunon GF92251B1-000U-AE9 und die Kühlhaube. Siehe `cad/DESIGN-NOTES.md`.
+Seit dem 16.09.2026 committet: der 92-mm-Halter für den Sunon
+GF92251B1-000U-AE9, und die Kühlhaube als Entwurf — gerechnet, exportiert, aber
+nicht gedruckt. Maße, Verworfenes und die Prüfungen vor einer Freigabe stehen in
+`cad/DESIGN-NOTES.md`; die Notizen sind deutsch, anders als der Rest des Repos.
+
+Das Herstellermodell `cad/871efab6-...STEP` gehört **nicht** ins Repo, es ist
+nicht unseres zum Weitergeben. Es liegt untracked im Arbeitsbaum und überlebt
+den Branchwechsel. Auf `hardware` hält die committete `.gitignore` es draußen,
+auf `latest` `.git/info/exclude` — das ist lokal, nicht im Klon, und nach einem
+frischen Klon neu einzutragen. Ohne die Datei fällt `duct_concept.py` auf einen
+Quader ohne Senkungen zurück; eine Freigängigkeitsprüfung meldet dann die Zapfen
+fälschlich als Kollision.
 
 ---
 
@@ -161,6 +173,12 @@ Sunon GF92251B1-000U-AE9 und die Kühlhaube. Siehe `cad/DESIGN-NOTES.md`.
 `ReadMe.md` auf `latest` überschrieben und den halben Branch geleert. Beim
 Kopieren zwischen den Branches auf Groß-/Kleinschreibung achten.
 
+Das gilt dem **Kopieren von Hand**, nicht dem Umschalten. Am 16.09.2026 in
+einem Wegwerf-Klon gemessen: `git switch` wechselt sauber zwischen `ReadMe.md`
+auf `latest` und `README.md` auf `hardware`, in beide Richtungen, mit leerem
+`git status` danach. Ein zweiter Arbeitsbaum dafür ist überflüssig — an dem Tag
+wurde einer gebaut und wieder entfernt, weil der Fallstrick falsch gelesen war.
+
 **Heredocs im Terminal brechen bei langem Einfügen ab** (`heredoc>` bleibt
 stehen). Inhalte lieber als Datei oder Zip liefern, nicht als Heredoc zum
 Einfügen.
@@ -169,7 +187,8 @@ Einfügen.
 Projekte nebeneinander; `cd ~/projects/TsBuckBoost && git branch --show-current`
 gehört an den Anfang.
 
-**Der Arbeitsbaum ist `~/projects/TsBuckBoost`, klein geschrieben.** In
+**Es gibt genau einen Arbeitsbaum: `~/projects/TsBuckBoost`, klein
+geschrieben, beide Branches darin.** In
 `~/Projekte` lag bis zum 16.09.2026 ein zweiter, alter Klon: Stand v1.18,
 single-branch, seit dem 05.09. nie gefetcht. Eine Übergabe ist dort gelandet,
 weil der Pfad aus dem deutschen Wort geraten und nicht geprüft war. Der alte
