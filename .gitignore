@@ -1,0 +1,6 @@
+__pycache__/
+tsbuckboost-handover.zip
+
+# The manufacturer's model of the converter. Measured off, not redistributed.
+# duct_concept.py picks it up when it sits next to the script.
+cad/871efab6-50ABuckBoostDCDCconverterstep.STEP
