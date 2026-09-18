@@ -1,7 +1,8 @@
 #!/bin/sh
 exec 2>&1
 
-# The driver finds the converter itself: it probes every CP210x port with
-# the type query and only then asks serial-starter to release that one port.
-# A foreign CP210x device on the same GX keeps its own service.
+# The driver finds the converter itself: it asks the port it confirmed last
+# time - on the first start every CP210x port - with the type query, and only
+# then asks serial-starter to release that one port. A foreign CP210x device
+# on the same GX keeps its own service.
 exec /usr/bin/python3 /data/TsBuckBoost/dbus-tsbb.py

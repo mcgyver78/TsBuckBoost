@@ -4,14 +4,14 @@
         "type": "tab",
         "label": "TsBuckBoost",
         "disabled": false,
-        "info": "Two things:\n\n1. A switch that shows the individual Buck-Boost temperatures as separate\n   Venus devices, or hides them again.\n2. Four inputs that read those temperatures straight from the converter's\n   own service - these work whether the switch is on or off.\n\nIMPORTANT: the switch writes the settings value\n/Settings/Devices/tsbuckboost/SeparateTempSensors on\ncom.victronenergy.settings - NOT the converter's /Mode path.\n/Mode is the pin 1 mirror and is written by the driver every 2 seconds.\n\nSwitching restarts the driver and then the GX user interface, so the device\nlist is redrawn. The display goes black for a few seconds; nothing else on\nthe system is affected."
+        "info": "A switch that shows the individual Buck-Boost temperatures as separate\nVenus devices or hides them again, and four inputs that read those\ntemperatures straight from the converter's own service - these work\nwhether the switch is on or off.\n\nThe switch writes the settings value\n/Settings/Devices/tsbuckboost/SeparateTempSensors on\ncom.victronenergy.settings - never the converter's /Mode path, which is\nthe pin 1 mirror. The driver (v1.21 or later) restarts itself when that\nvalue changes; this flow then restarts the GX user interface, so that the\ndevice list is redrawn. The display goes black for a few seconds; nothing\nelse on the system is affected."
     },
     {
         "id": "tsbb_note",
         "type": "comment",
         "z": "tsbb_tab",
         "name": "TsBuckBoost: show temperatures as separate devices",
-        "info": "Setting: /Settings/Devices/tsbuckboost/SeparateTempSensors\n1 = on, 0 = off. The value survives reboots and package updates.\n\nThe flow reads the setting before writing and only acts on a real change,\nand it ignores whatever arrives in the first five seconds after a deploy -\nthe virtual switch emits its state then, which is not a command.\nOn a real change the driver is restarted, then the GX user interface, so\nthe device list is redrawn. The result is fed back into the virtual\nswitch, so its position on the GX display always matches the setting.\n\nThe temperatures themselves are always on D-Bus in the converter's own\nservice - see the four input nodes below. The switch only decides whether\nVenus also lists them as devices of their own.",
+        "info": "Setting: /Settings/Devices/tsbuckboost/SeparateTempSensors\n1 = on, 0 = off. The value survives reboots and package updates.\n\nOne command runs at a time. A tap while one is running only replaces the\npending wish, which runs afterwards - so quick taps end in the last one,\nwith at most one extra restart.\n\nThe switch always shows the setting as read back from the GX: after every\ncommand, on every start of the flow and every ten minutes. A change made\nfrom the console therefore shows up on the switch as well. The first report\nof the switch after a deploy is its stored state, not a tap; it is answered\nby reading the setting, never by writing it.\n\nNeeds the TsBuckBoost driver v1.21 or later, which restarts itself when the\nsetting changes. The flow only restarts the GX user interface.",
         "x": 320,
         "y": 60,
         "wires": []
@@ -38,6 +38,26 @@
         "wires": [
             [],
             [
+                "tsbb_from_switch"
+            ]
+        ]
+    },
+    {
+        "id": "tsbb_from_switch",
+        "type": "function",
+        "z": "tsbb_tab",
+        "name": "from the switch",
+        "func": "// Marks what comes from the virtual switch, so that \"build settings command\"\n// can tell its reports from the commands of the inject nodes.\nmsg.tsbbSource = 'switch';\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 160,
+        "wires": [
+            [
                 "tsbb_cmd"
             ]
         ]
@@ -55,16 +75,17 @@
         "repeat": "",
         "crontab": "",
         "once": false,
+        "onceDelay": 0.1,
         "topic": "",
-        "payload": "1",
-        "payloadType": "num",
         "x": 200,
-        "y": 240,
+        "y": 220,
         "wires": [
             [
                 "tsbb_cmd"
             ]
-        ]
+        ],
+        "payload": "1",
+        "payloadType": "num"
     },
     {
         "id": "tsbb_off",
@@ -79,31 +100,62 @@
         "repeat": "",
         "crontab": "",
         "once": false,
+        "onceDelay": 0.1,
         "topic": "",
-        "payload": "0",
-        "payloadType": "num",
         "x": 200,
+        "y": 260,
+        "wires": [
+            [
+                "tsbb_cmd"
+            ]
+        ],
+        "payload": "0",
+        "payloadType": "num"
+    },
+    {
+        "id": "tsbb_read",
+        "type": "inject",
+        "z": "tsbb_tab",
+        "name": "read the setting",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "tsbbSync",
+                "v": "true",
+                "vt": "bool"
+            }
+        ],
+        "repeat": "600",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 5,
+        "topic": "",
+        "x": 210,
         "y": 300,
         "wires": [
             [
                 "tsbb_cmd"
             ]
-        ]
+        ],
+        "payload": "read",
+        "payloadType": "str"
     },
     {
         "id": "tsbb_cmd",
         "type": "function",
         "z": "tsbb_tab",
         "name": "build settings command",
-        "func": "// The virtual switch emits its state right after a deploy. Without this\n// guard the flow would write the setting and restart the GX display every\n// time Node-RED is deployed.\nvar started = context.get('startedAt') || 0;\nif (Date.now() - started < 5000) {\n    node.status({fill: 'grey', shape: 'ring', text: 'ignored (just deployed)'});\n    return null;\n}\n\n// Accepts 1/0, true/false, \"on\"/\"off\", \"true\"/\"false\" (any case) or an\n// object with .state - depending on what the sender delivers. Anything\n// else is refused: guessing here would restart the driver and the GX\n// display for nothing.\nvar p = msg.payload;\nif (p !== null && typeof p === 'object') {\n    p = (p.state !== undefined) ? p.state : p.value;\n}\nif (typeof p === 'string') { p = p.trim().toLowerCase(); }\nvar value;\nif (p === 1 || p === true || p === '1' || p === 'on' || p === 'true') {\n    value = 1;\n} else if (p === 0 || p === false || p === '0' || p === 'off' || p === 'false') {\n    value = 0;\n} else {\n    node.warn('ignored payload: ' + JSON.stringify(msg.payload));\n    node.status({fill: 'yellow', shape: 'ring', text: 'ignored payload'});\n    return null;\n}\n\n// Read the setting first and only act on a real change - a driver restart\n// plus a GUI restart is nothing to trigger for nothing. Writing the settings\n// value, not the device path /Mode! The GUI service is start-gui on current\n// Venus OS and gui on older releases. stderr is folded into stdout so the\n// status node can show the actual error.\nvar path = '/Settings/Devices/tsbuckboost/SeparateTempSensors';\nmsg.payload =\n    'P=' + path + '; V=' + value + '; ' +\n    'CUR=$(dbus -y com.victronenergy.settings $P GetValue 2>&1 | tr -d \" \\\\n\"); ' +\n    'if [ \"$CUR\" = \"$V\" ]; then echo unchanged; else ' +\n    '{ dbus -y com.victronenergy.settings $P SetValue $V && ' +\n    'svc -t /service/TsBuckBoost && sleep 3 && ' +\n    '( svc -t /service/start-gui || svc -t /service/gui ) && ' +\n    'echo switched; } 2>&1 || echo failed; fi';\nmsg.tsbbValue = value;\nnode.status({fill: 'blue', shape: 'dot', text: 'switching to ' + value});\nreturn msg;",
+        "func": "// One command at a time. While one runs, a newer wish replaces the pending\n// one, and \"result\" starts it when the current command is done. Two quick\n// taps used to run in parallel, and each result fed back into the switch\n// started yet another run: driver and GX display restarted every few seconds.\n//\n// The virtual switch reports its state after every deploy and whenever\n// \"sync switch\" sets it. Its first report after a (re)start is not a tap:\n// it only starts a read of the setting, which then sets the switch. After\n// that, only a change against the state last seen is a command.\nvar P = '/Settings/Devices/tsbuckboost/SeparateTempSensors';\nvar GET = 'dbus -y com.victronenergy.settings ' + P + \" GetValue 2>/dev/null | tr -d ' \\\\n'\";\nvar value = null;\nif (msg.tsbbSync !== true) {\n    // Accepts 1/0, true/false, \"on\"/\"off\", \"true\"/\"false\" (any case) or an\n    // object with .state - depending on what the sender delivers. Anything\n    // else is refused: a guess could restart the GX display for nothing.\n    var p = msg.payload;\n    if (p !== null && typeof p === 'object') {\n        p = (p.state !== undefined) ? p.state : p.value;\n    }\n    if (typeof p === 'string') { p = p.trim().toLowerCase(); }\n    if (p === 1 || p === true || p === '1' || p === 'on' || p === 'true') {\n        value = 1;\n    } else if (p === 0 || p === false || p === '0' || p === 'off' || p === 'false') {\n        value = 0;\n    } else {\n        node.warn('ignored payload: ' + JSON.stringify(msg.payload));\n        node.status({fill: 'yellow', shape: 'ring', text: 'ignored payload'});\n        return null;\n    }\n    if (msg.tsbbSource === 'switch') {\n        var seen = flow.get('tsbbSwitchState');\n        var first = !flow.get('tsbbSwitchSeen');\n        flow.set('tsbbSwitchSeen', true);\n        flow.set('tsbbSwitchState', value);\n        if (first) {\n            value = null;\n        } else if (seen === value) {\n            return null;\n        }\n    }\n}\nvar busy = flow.get('tsbbBusy') || 0;\nif (busy && Date.now() - busy < 60000) {\n    flow.set('tsbbPending', value === null ? 'sync' : value);\n    node.status({fill: 'blue', shape: 'ring',\n                 text: 'queued: ' + (value === null ? 'read' : 'switch to ' + value)});\n    return null;\n}\nflow.set('tsbbBusy', Date.now());\nmsg.tsbbValue = value;\nif (value === null) {\n    msg.payload = 'echo \"RESULT=$(' + GET + ')\"';\n    node.status({fill: 'blue', shape: 'dot', text: 'reading the setting'});\n    return msg;\n}\n// Only the setting is written, never the device path /Mode. The driver\n// (v1.21 and later) restarts itself when the setting changes; the GX display\n// is restarted here so that it drops the devices that went away. svc reports\n// a failure on stderr and still exits with 0, so its output is what counts.\nmsg.payload = [\n    'get() { ' + GET + '; }',\n    'ctl() { E=$(svc -t \"$1\" 2>&1); [ -z \"$E\" ] || { echo \"$E\"; return 1; }; }',\n    'if [ \"$(get)\" = \"' + value + '\" ]; then',\n    '    echo unchanged',\n    'else',\n    '    OUT=$(dbus -y com.victronenergy.settings ' + P + ' SetValue ' + value + ' 2>&1)',\n    '    if [ \"$(get)\" != \"' + value + '\" ]; then',\n    '        echo \"failed: setting not written: $OUT\"',\n    '    else',\n    '        sleep 4',\n    '        if [ -d /service/start-gui ]; then G=/service/start-gui; else G=/service/gui; fi',\n    '        if ctl $G; then echo switched; else echo \"failed: GX display not restarted\"; fi',\n    '    fi',\n    'fi',\n    'echo \"RESULT=$(get)\"'\n].join('\\n');\nnode.status({fill: 'blue', shape: 'dot', text: 'switching to ' + value});\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
-        "initialize": "// Remember when this node came up, so the first messages after a\n// deploy can be ignored.\ncontext.set('startedAt', Date.now());",
+        "initialize": "// A deploy or a restart: the next report of the switch is its stored state,\n// not a tap, and no command is running any more.\nflow.set('tsbbSwitchSeen', false);\nflow.set('tsbbBusy', 0);\nflow.set('tsbbPending', undefined);",
         "finalize": "",
         "libs": [],
-        "x": 500,
-        "y": 200,
+        "x": 640,
+        "y": 220,
         "wires": [
             [
                 "tsbb_exec"
@@ -118,12 +170,12 @@
         "addpay": "payload",
         "append": "",
         "useSpawn": "false",
-        "timer": "20",
+        "timer": "30",
         "winHide": false,
         "oldrc": false,
         "name": "run on the GX device",
-        "x": 760,
-        "y": 200,
+        "x": 860,
+        "y": 220,
         "wires": [
             [
                 "tsbb_status"
@@ -137,19 +189,24 @@
         "type": "function",
         "z": "tsbb_tab",
         "name": "result",
-        "func": "// Wired to the first exec output. The command always echoes exactly one\n// keyword, so one message per run; stderr is folded in, so a failure\n// carries the real error text instead of a guess.\nvar out = String(msg.payload || '').trim();\nvar state = msg.tsbbValue === 1 ? 'on' : 'off';\nvar ok = true;\n\nif (/\\bswitched\\b/.test(out)) {\n    msg.payload = 'separate temperature devices ' + state\n        + ', driver and GX display restarted';\n} else if (/\\bunchanged\\b/.test(out)) {\n    msg.payload = 'already ' + state + ', nothing to do';\n} else {\n    ok = false;\n    msg.payload = 'failed: ' + (out.replace(/\\bfailed\\b/, '').trim()\n        || 'no output - is the exec node allowed to run commands?');\n}\nmsg.tsbbOk = ok;\nreturn msg;",
-        "outputs": 1,
+        "func": "// The command prints its keyword line(s) and, last, RESULT=<the setting as\n// read back>. The switch is set from that value - after a failure as well -\n// and never from what was asked for.\nvar out = String(msg.payload || '').trim();\nvar m = out.match(/RESULT=([01])/);\nvar actual = m ? parseInt(m[1], 10) : null;\nvar text = out.replace(/^RESULT=.*$/m, '').trim();\nvar reading = msg.tsbbValue === null || msg.tsbbValue === undefined;\nvar state = actual === 1 ? 'on' : (actual === 0 ? 'off' : 'unknown');\nvar ok = true;\nvar report;\nif (reading) {\n    ok = actual !== null;\n    report = ok ? 'setting is ' + state : 'setting not readable: ' + (text || 'no output');\n} else if (/\\bunchanged\\b/.test(text) && actual === msg.tsbbValue) {\n    report = 'already ' + state + ', nothing to do';\n} else if (/\\bswitched\\b/.test(text) && actual === msg.tsbbValue) {\n    report = 'separate temperature devices ' + state +\n        ', driver restarts itself, GX display restarted';\n} else {\n    ok = false;\n    report = 'failed: ' + (text.replace(/failed: ?/g, '').replace(/\\s*\\n\\s*/g, '; ') ||\n        'no output - is the exec node allowed to run commands?') +\n        ' (setting is ' + state + ')';\n}\nnode.status({fill: ok ? 'green' : 'red', shape: 'dot', text: report});\nflow.set('tsbbBusy', 0);\nvar pending = flow.get('tsbbPending');\nflow.set('tsbbPending', undefined);\nvar next = null;\nif (pending === 'sync') {\n    next = {payload: 'read', tsbbSync: true};\n} else if (pending === 0 || pending === 1) {\n    next = {payload: pending};\n}\nreturn [reading ? null : {payload: report, tsbbOk: ok},\n        actual === null ? null : {payload: actual},\n        next];",
+        "outputs": 3,
         "timeout": 0,
         "noerr": 0,
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1010,
-        "y": 200,
+        "x": 1060,
+        "y": 220,
         "wires": [
             [
-                "tsbb_debug",
+                "tsbb_debug"
+            ],
+            [
                 "tsbb_sync"
+            ],
+            [
+                "tsbb_cmd"
             ]
         ]
     },
@@ -166,18 +223,38 @@
         "targetType": "msg",
         "statusVal": "payload",
         "statusType": "auto",
-        "x": 1210,
-        "y": 200,
+        "x": 1250,
+        "y": 180,
         "wires": []
+    },
+    {
+        "id": "tsbb_sync",
+        "type": "function",
+        "z": "tsbb_tab",
+        "name": "sync switch",
+        "func": "// Sets the virtual switch to the setting as read back. The switch reports\n// the change on its second output; \"build settings command\" finds it equal\n// to the state recorded here and leaves it alone.\nif (msg.payload !== 0 && msg.payload !== 1) { return null; }\nflow.set('tsbbSwitchState', msg.payload);\nreturn {payload: msg.payload};",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1260,
+        "y": 260,
+        "wires": [
+            [
+                "tsbb_vswitch"
+            ]
+        ]
     },
     {
         "id": "tsbb_temp_note",
         "type": "comment",
         "z": "tsbb_tab",
         "name": "Temperatures straight from the converter - no extra devices needed",
-        "info": "These read the paths the driver always publishes on its own service,\nwhether the separate temperature devices are switched on or not.\n\n\"Only changes\" is deliberately off: a temperature can sit on the same\nvalue for minutes, and with it on the nodes stay silent - and show\ndisconnected - until the reading finally moves. Off, the Victron nodes\nre-send the last value every five seconds and immediately on a change.\n\nThe service is stored as com.victronenergy.alternator/<device instance>;\n40 is the driver's default, yours may differ - check with:\n  dbus -y com.victronenergy.settings \\\n       /Settings/Devices/tsbuckboost/ClassAndVrmInstance GetValue\nIf a node shows disconnected, open it, pick the Buck-Boost from the list\nand deploy. The CAN sensor node delivers an empty value while no TS Temp\nsensor is connected to the converter.",
+        "info": "These read the paths the driver always publishes on its own service,\nwhether the separate temperature devices are switched on or not.\n\n\"Only changes\" is deliberately off: a temperature can sit on the same\nvalue for minutes, and with it on the nodes stay silent - and show\ndisconnected - until the reading finally moves. Off, the Victron nodes\nre-send the last value every five seconds and immediately on a change.\nThe debug node below is off, too; switch it on while you look.\n\nThe service is stored as com.victronenergy.alternator/<device instance>;\n40 is the driver's default, yours may differ - check with:\n  dbus -y com.victronenergy.settings \\\n       /Settings/Devices/tsbuckboost/ClassAndVrmInstance GetValue\nIf a node shows disconnected, open it, pick the Buck-Boost from the list\nand deploy. The CAN sensor node delivers an empty value while no TS Temp\nsensor is connected to the converter.",
         "x": 380,
-        "y": 320,
+        "y": 380,
         "wires": []
     },
     {
@@ -198,7 +275,7 @@
         "name": "Board temperature",
         "onlyChanges": false,
         "x": 200,
-        "y": 360,
+        "y": 420,
         "wires": [
             [
                 "tsbb_temp_debug"
@@ -223,7 +300,7 @@
         "name": "MOSFET 1 temperature",
         "onlyChanges": false,
         "x": 200,
-        "y": 420,
+        "y": 480,
         "wires": [
             [
                 "tsbb_temp_debug"
@@ -248,7 +325,7 @@
         "name": "MOSFET 2 temperature",
         "onlyChanges": false,
         "x": 200,
-        "y": 480,
+        "y": 540,
         "wires": [
             [
                 "tsbb_temp_debug"
@@ -273,7 +350,7 @@
         "name": "CAN sensor temperature",
         "onlyChanges": false,
         "x": 200,
-        "y": 540,
+        "y": 600,
         "wires": [
             [
                 "tsbb_temp_debug"
@@ -285,7 +362,7 @@
         "type": "debug",
         "z": "tsbb_tab",
         "name": "temperatures",
-        "active": true,
+        "active": false,
         "tosidebar": true,
         "console": false,
         "tostatus": false,
@@ -294,27 +371,7 @@
         "statusVal": "",
         "statusType": "auto",
         "x": 520,
-        "y": 450,
+        "y": 510,
         "wires": []
-    },
-    {
-        "id": "tsbb_sync",
-        "type": "function",
-        "z": "tsbb_tab",
-        "name": "sync switch",
-        "func": "// Feed the final state back into the virtual switch, so the switch on the\n// GX display shows what the setting really is - also after the inject\n// nodes or the console were used. Plain 1/0 on the switch input sets\n// its state; the switch does not re-emit an unchanged state, so this\n// does not loop.\nif (msg.tsbbOk !== true) { return null; }\nreturn { payload: msg.tsbbValue };",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 1010,
-        "y": 260,
-        "wires": [
-            [
-                "tsbb_vswitch"
-            ]
-        ]
     }
 ]

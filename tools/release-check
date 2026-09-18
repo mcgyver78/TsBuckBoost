@@ -1,0 +1,121 @@
+#!/bin/sh
+#
+# release-check OLD NEW
+#
+# Checks one step of the package history. OLD is a commit, NEW a commit or
+# --index for what is staged. tools/pre-commit runs it for HEAD against the
+# index, tools/pre-push for every pushed commit against its first parent.
+#
+# 1. "changes" must still exist under exactly that name. A rename counts as
+#    losing it: git reports R100 and the check used to look the other way,
+#    and SetupHelper ships no file of the old name.
+# 2. Everything below the newest entry of OLD must be the end of NEW, byte for
+#    byte. New entries go on top and the newest entry may still be edited;
+#    older history may not. A scripted edit that wrote the file instead of
+#    prepending to it lost the whole release history twice: f797818 (v1.19)
+#    left 976 of 6660 bytes, 958dfd0 (v1.20) left 723 of 7636.
+# 3. "version", the VERSION constant in dbus-tsbb.py and the newest entry of
+#    "changes" name the same version. 958dfd0 shipped v1.20 with VERSION 1.19,
+#    and SetupHelper never delivered the correction because the package
+#    version did not change.
+#
+# Rules 1 and 2 apply where OLD has "changes", rule 3 where NEW has all three
+# files. The hardware branch has none of them.
+#
+# TSBB_ALLOW_CHANGELOG_EDIT=1 lets a deliberate change to older history
+# through; TSBB_ALLOW_CHANGELOG_SHRINK=1, the switch of the first version of
+# this check, still works. A version mismatch has no switch: fix the files.
+
+old=$1
+new=$2
+if [ -z "$old" ] || [ -z "$new" ]; then
+    echo "usage: release-check OLD NEW|--index" >&2
+    exit 2
+fi
+if [ "$new" = "--index" ]; then
+    at=":"
+else
+    at="$new:"
+fi
+
+allow_edit=0
+[ "${TSBB_ALLOW_CHANGELOG_EDIT:-}" = "1" ] && allow_edit=1
+[ "${TSBB_ALLOW_CHANGELOG_SHRINK:-}" = "1" ] && allow_edit=1
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/release-check.XXXXXX") || exit 1
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 1' HUP INT TERM
+
+fail=0
+
+history_lost() {
+    if [ $allow_edit = 1 ]; then
+        echo "release-check: $1 - allowed on request." >&2
+        return
+    fi
+    cat >&2 <<MSG
+
+release-check: $1.
+
+New changelog entries go on top of "changes"; the entries below the newest
+one stay exactly as they are. Losing them is the bug behind f797818 and
+958dfd0, which took the entire release history twice.
+
+Compare with the last good state:
+
+    git diff $old -- changes
+
+If older entries really are meant to change:
+
+    TSBB_ALLOW_CHANGELOG_EDIT=1 git commit ...
+
+MSG
+    fail=1
+}
+
+if git cat-file -e "$old:changes" 2>/dev/null; then
+    if ! git cat-file -e "${at}changes" 2>/dev/null; then
+        history_lost "changes is gone (deleted or renamed)"
+    else
+        git cat-file blob "$old:changes" > "$tmp/old"
+        git cat-file blob "${at}changes" > "$tmp/new"
+        # Line of the second entry header: everything from there down is the
+        # history that has to survive.
+        second=$(grep -n '^v[0-9]' "$tmp/old" | sed -n 2p | cut -d: -f1)
+        if [ -n "$second" ]; then
+            tail -n "+$second" "$tmp/old" > "$tmp/history"
+            size=$(wc -c < "$tmp/history" | tr -d ' ')
+            if ! tail -c "$size" "$tmp/new" | cmp -s - "$tmp/history"; then
+                old_size=$(wc -c < "$tmp/old" | tr -d ' ')
+                new_size=$(wc -c < "$tmp/new" | tr -d ' ')
+                history_lost "older changelog entries changed or lost \
+($old_size -> $new_size bytes)"
+            fi
+        fi
+    fi
+fi
+
+if git cat-file -e "${at}version" 2>/dev/null \
+        && git cat-file -e "${at}dbus-tsbb.py" 2>/dev/null \
+        && git cat-file -e "${at}changes" 2>/dev/null; then
+    v=$(git cat-file blob "${at}version" | head -n 1 | tr -d ' \t\r')
+    c=$(git cat-file blob "${at}dbus-tsbb.py" \
+        | sed -n 's/^VERSION = "\([^"]*\)".*/\1/p' | head -n 1)
+    h=$(git cat-file blob "${at}changes" | head -n 1 | cut -d' ' -f1 | tr -d '\r')
+    if [ "$v" != "v$c" ] || [ "$h" != "$v" ]; then
+        cat >&2 <<MSG
+
+release-check: the versions do not agree.
+
+    version          $v
+    VERSION          $c   (dbus-tsbb.py)
+    changes, top     $h
+
+All three change together, in the same commit.
+
+MSG
+        fail=1
+    fi
+fi
+
+exit $fail

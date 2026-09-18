@@ -1,0 +1,47 @@
+#!/bin/sh
+#
+# pre-push: every commit about to leave this clone passes tools/release-check
+# against its first parent. Install as described in tools/pre-commit.
+#
+# The changelog truncations f797818 and 958dfd0 were committed in
+# claude.ai/code sessions, where no pre-commit hook runs, and reached this
+# clone by pull. From here they would have gone on to the second remote
+# unchecked. This is where they stop now.
+#
+# The checker is taken from the commit being pushed, so it also works while
+# another branch is checked out. A push to an empty remote checks the whole
+# history, including the two old truncations; TSBB_ALLOW_CHANGELOG_EDIT=1
+# lets that through.
+
+remote=$1
+zero_or_empty() {
+    case $1 in
+        *[!0]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+checker=$(mktemp "${TMPDIR:-/tmp}/release-check.XXXXXX") || exit 1
+trap 'rm -f "$checker"' EXIT
+trap 'exit 1' HUP INT TERM
+
+fail=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+    zero_or_empty "$local_sha" && continue
+    git show "$local_sha:tools/release-check" > "$checker" 2>/dev/null || continue
+    if ! zero_or_empty "$remote_sha" && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+        commits=$(git rev-list "$remote_sha..$local_sha")
+    else
+        commits=$(git rev-list "$local_sha" --not --remotes="$remote")
+    fi
+    for c in $commits; do
+        p=$(git rev-parse -q --verify "$c^1") || continue
+        if ! sh "$checker" "$p" "$c"; then
+            echo "pre-push: $(git log -1 --format='%h %s' "$c") fails the release check." >&2
+            fail=1
+        fi
+    done
+done
+
+[ $fail = 0 ] || echo "pre-push: refusing to push $remote_ref to $remote." >&2
+exit $fail

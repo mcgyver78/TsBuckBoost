@@ -1,3 +1,47 @@
+v1.21 - results of a full audit: read-only guard, careful probing, energy counter
+  driver: every byte for the converter goes through one function that lets only
+  FE 11, FE D0 and FE CF pass and sends nothing at all once another process has
+  changed the line settings of the tty; the probe no longer writes past it. A
+  foreign speed on the shared tty turned our read commands into other bytes (at
+  4800 baud FE CF arrives as F8 FE F8); now the driver restarts instead of sending.
+  driver: the port of the converter is remembered in the settings and asked alone
+  while it exists; all CP210x ports are only asked on the first start or when it
+  is gone. The probe wants a quiet line before the question, exactly one byte,
+  twice the same, and a type it can decode - a device that talks on its own, such
+  as a GPS, gets nothing written into it and keeps its service. The line settings
+  found on a port are put back after the probe.
+  driver: without a converter the process stays and searches again after 10 s,
+  then with growing pauses up to 5 min, instead of restarting every 15 s and
+  asking every foreign port again; a newly plugged port ends the wait
+  driver: the energy counter is also stored when the process ends - after failed
+  polls, on errors and on SIGTERM (svc -t/-d, the Node-RED flow, package updates).
+  Up to five minutes were lost on every restart, and restarts less than five
+  minutes apart stored nothing at all. A failed store is retried after 30 s, an
+  outage is no longer counted as energy, and a value written to EnergyOut from
+  outside is taken over.
+  driver: a live block that cannot be real (over 100 V or 250 A) counts as a
+  poll without an answer instead of adding kWh to the counter; an alarm level is
+  entered after two readings in a row and survives a restart of the driver
+  driver: settings that are not there at start are fatal (daemontools retries)
+  instead of running with instance 40 and a counter of 0; an unreadable counter
+  or instance is no longer written over; a failed dcdc migration keeps the rest
+  driver: restarts itself when SeparateTempSensors changes, whoever wrote it. The
+  temperature devices take their instances from the settings, a CAN sensor that
+  answers later gets its device, and a device that fails closes its connection.
+  driver: on loss of contact the status, mode and off-reason paths are cleared as
+  well; FE CF is asked less often when it never answers; a port given as an
+  argument is never handed to stop-tty.sh; stop-tty.sh failures are logged as
+  such; the calibration keeps its best answer
+  driver: v1.20 went out with VERSION 1.19 in the driver; package and driver
+  agree again
+  flow: one command at a time, and the switch always shows the setting as read
+  back. Its report after a deploy is answered by reading, never by writing. Two
+  quick opposite taps no longer restart driver and display in an endless loop.
+  The flow only restarts the GX display now, and a refused svc counts as failed.
+  tools: pre-commit refuses a commit that renames changes, rewrites its older
+  entries or ships mismatched versions, and runs the new tests; pre-push checks
+  every commit before it leaves the clone
+
 v1.20 - a port without a serial-starter node is not automatically foreign
   driver: v1.19 skipped a candidate port whenever serial-starter had no node
   for it. That is one inference too many: this driver removes the node itself

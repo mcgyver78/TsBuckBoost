@@ -1,58 +1,52 @@
 #!/bin/sh
 #
-# Refuse a commit that makes "changes" shorter than it already is.
+# pre-commit: checks what is staged before it becomes a commit.
 #
-# The changelog has been truncated twice by scripted edits that wrote the file
-# instead of prepending to it: f797818 (v1.19) left 976 of 6660 bytes, c095815
-# repaired it to 7636, and 958dfd0 (v1.20) cut it back to 723. Both times the
-# whole release history was gone and nobody noticed until much later.
+# Hooks are not part of a clone. Install once, as links, so that a change to
+# these files is in effect at once:
 #
-# A new entry always makes the file longer. If it gets shorter, something
-# overwrote it. Set TSBB_ALLOW_CHANGELOG_SHRINK=1 for a deliberate shrink.
+#     ln -sf ../../tools/pre-commit .git/hooks/pre-commit
+#     ln -sf ../../tools/pre-push .git/hooks/pre-push
+#
+# 1. tools/release-check, HEAD against the index: changelog history kept,
+#    versions agree. See there for the rules and the override.
+# 2. The tests in tests/, when a staged path is one they cover. They run on
+#    the working tree, not on the index, so stage what you have tested.
+#    TSBB_SKIP_TESTS=1 skips them.
+#
+# This only sees commits made in this clone. All three changelog truncations
+# were committed in claude.ai/code sessions (Claude-Session trailer, +0000)
+# and came in by pull; tools/pre-push catches such commits before they go on
+# to the second remote.
 
-FILE=changes
-
+cd "$(git rev-parse --show-toplevel)" || exit 1
 git rev-parse --verify HEAD >/dev/null 2>&1 || exit 0
-git diff --cached --name-only | grep -qx "$FILE" || exit 0
-git cat-file -e "HEAD:$FILE" 2>/dev/null || exit 0
+[ -f tools/release-check ] || exit 0
 
-old=$(git cat-file -s "HEAD:$FILE")
+sh tools/release-check HEAD --index || {
+    echo "pre-commit: refusing this commit." >&2
+    exit 1
+}
 
-if git diff --cached --name-status -- "$FILE" | grep -q '^D'; then
-    new=0
-else
-    blob=$(git ls-files --stage -- "$FILE" | awk '{print $2}')
-    new=$(git cat-file -s "$blob")
-fi
+[ "${TSBB_SKIP_TESTS:-}" = "1" ] && exit 0
+[ -d tests ] || exit 0
+git diff --cached --name-only | grep -Eq '^(dbus-tsbb\.py|tools/|tests/|extras/)' || exit 0
 
-[ "$new" -ge "$old" ] && exit 0
-
-if [ "$TSBB_ALLOW_CHANGELOG_SHRINK" = "1" ]; then
-    echo "pre-commit: $FILE shrinks ${old} -> ${new} bytes, allowed on request." >&2
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "pre-commit: python3 not found, tests not run." >&2
     exit 0
 fi
 
-cat >&2 <<MSG
-
-pre-commit: refusing this commit.
-
-  $FILE shrinks from ${old} to ${new} bytes.
-
-A new changelog entry makes the file longer. Getting shorter means the file was
-written over instead of prepended to - the bug behind f797818 and 958dfd0, which
-lost the entire release history twice.
-
-Check it:
-
-    git diff --cached -- $FILE
-
-The last intact copy of an earlier state can be recovered with:
-
-    git show <commit>:$FILE
-
-If the file really is meant to get shorter:
-
-    TSBB_ALLOW_CHANGELOG_SHRINK=1 git commit ...
-
-MSG
+out=$(mktemp "${TMPDIR:-/tmp}/tsbb-tests.XXXXXX") || exit 1
+# git hands GIT_INDEX_FILE (in a worktree GIT_DIR as well) to this hook. The
+# tests build repositories of their own and must not inherit them.
+if env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE -u GIT_PREFIX \
+        python3 -m unittest discover -s tests >"$out" 2>&1; then
+    echo "pre-commit: $(grep '^Ran ' "$out"), $(tail -n 1 "$out")" >&2
+    rm -f "$out"
+    exit 0
+fi
+cat "$out" >&2
+rm -f "$out"
+echo "pre-commit: tests failed, refusing this commit (TSBB_SKIP_TESTS=1 to skip)." >&2
 exit 1
