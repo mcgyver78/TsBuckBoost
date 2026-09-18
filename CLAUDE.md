@@ -11,8 +11,9 @@ Node-RED-Knotennamen, ReadMe — ist **Englisch**. Das ist bewusst so und bleibt
 
 ## Harte Regel: der Treiber schreibt nicht
 
-Der Treiber sendet **ausschließlich Lesekommandos**: `FE 11` (Typ),
-`FE D0` (Kalibrierung), `FE CF` (Messwerte).
+Der Treiber sendet **ausschließlich Lesekommandos**: `FE 11` (Lesen: Typ und
+Kalibrierung), `FE D0` (Live-Block mit den Messwerten), `FE CF` (Zusatzblock mit
+dem CAN-Fühler).
 
 `FE 02`-Schreibzugriffe sind **absichtlich nicht implementiert** und dürfen auch
 nicht nachgerüstet werden. Dieselbe Schnittstelle nimmt Parameteränderungen
@@ -22,13 +23,23 @@ im Fahrzeug ist das kein akzeptables Risiko. Konfiguration bleibt bei TSConfig.
 
 Wenn jemand um eine Schreibfunktion bittet: erst auf diese Regel hinweisen.
 
+Seit v1.21 geht jedes Byte an den Wandler durch `send_read()`: nur diese drei
+Kommandos, und nur solange die Leitung noch auf 9600 8N1 steht. termios gehört
+dem tty, nicht dem Deskriptor — ein Probe-Dienst, der den Port öffnet und seine
+Baudrate setzt, stellt sie auch für den Treiber um, und bei 4800 käme `FE CF`
+als `F8 FE F8` an (gerechnet im Audit am 18.09.2026, nicht am Gerät gemessen).
+Dann wird nichts gesendet, und der Treiber startet neu. `exclusive=True` ist in
+pyserial nur ein beratendes flock und hält solche Prozesse nicht ab.
+
 ## Zugangsdaten
 
 Claude hat keine Zugangsdaten für dieses Repo und soll auch keine anfordern.
 Commits und Pushes macht Lars selbst auf seinem Mac.
 
 Das Projekt liegt auf **GitHub** und zusätzlich immer als **Kopie auf GitLab**.
-Was auf einem landet, gehört auch auf den anderen — beide Branches.
+Was auf einem landet, gehört auch auf den anderen — beide Branches. Die
+GitLab-Kopie ist das Backup; dass Host, Port und Gruppe hier öffentlich stehen,
+bleibt so (Audit-Befund 56, Lars am 19.09.2026). Schlüssel stehen hier keine.
 
 ```
 origin   git@github.com:mcgyver78/TsBuckBoost.git                      (SSH)
@@ -63,13 +74,16 @@ Dateien auf `latest`:
 
 ```
 dbus-tsbb.py        der Treiber (VERSION-Konstante oben, muss zu `version` passen)
-version             z.B. v1.20
+version             z.B. v1.21
 changes             Changelog, neueste Version oben
 setup               SetupHelper-Hook
 find-port.sh        listet nur Kandidatenports, das Suchen macht der Treiber
 services/TsBuckBoost/run + log/run
 extras/nodered-separate-temp-sensors.json
-tools/pre-commit    Wächter gegen das Abschneiden von `changes`, siehe unten
+tools/pre-commit    Wächter vor jedem Commit, siehe unten
+tools/pre-push      Wächter vor jedem Push, siehe unten
+tools/release-check die Prüfung, die beide benutzen
+tests/              Tests ohne Venus und ohne Hardware, siehe unten
 CLAUDE.md           diese Datei, liegt auf beiden Branches
 ReadMe.md           zweisprachig, Deutsch und Englisch
 ```
@@ -86,18 +100,48 @@ Nur so summiert systemcalc `/Dc/Alternator/Power` und das Gerät erscheint auf
 der Übersichtsseite neben Solar. Default-Instanz `alternator:40`.
 
 Protokoll: 9600 8N1, DTR+RTS gesetzt, keine Prüfsumme. Port über
-`/dev/serial/by-id/`, CP210x. Der Treiber probiert jeden Kandidatenport mit der
-Typabfrage und löst nur den vom serial-starter, der antwortet — ein fremdes
-CP210x-Gerät behält seinen Service. Wird ein Port als Argument übergeben,
-entfallen Probing und `stop-tty.sh`.
+`/dev/serial/by-id/`, CP210x. Der Treiber merkt sich den bestätigten Port in
+`/Settings/Devices/tsbuckboost/Port` und fragt, solange der existiert, nur ihn
+(vorher `stop-tty.sh`). Nur beim ersten Start, oder wenn er fehlt, fragt er alle
+Kandidaten — vorsichtig: Leitung vor der Frage still, kurze Antwort, zweimal
+dieselbe Kennung, nur Typen, die er dekodieren kann. Die Kennung ist ein Byte;
+dass der Wandler danach schweigt, sagt nur das aus TSConfig gelesene Protokoll,
+am Gerät ist es nicht gemessen. Bis zu drei Folgebytes gelten deshalb noch als
+Antwort und stehen im Log (`answers the type query with more than its id`); ein
+Gerät, das streamt, schickt mehr. Erst dann löst er den Port
+vom serial-starter; ein fremdes CP210x-Gerät behält seinen Service. Die
+vorgefundene Leitungseinstellung wird nach der Probe zurückgeschrieben. Ohne
+Wandler bleibt der Prozess und fragt nach 10 s bis 5 min erneut, ein neuer Port
+beendet die Wartezeit. Wird ein Port als Argument übergeben, entfallen Suche,
+`stop-tty.sh` und das Merken.
 
-Alte Kurzblock-Typen (TS200/400/800/800C) werden beim Start abgelehnt.
+Alte Kurzblock-Typen (TS200/400/800/800C) werden erkannt und nicht angefasst:
+kein `stop-tty.sh`, im Log `model not supported`.
 
 Fehlerverhalten: jeder Fehler im Poll beendet den Prozess, damit daemontools
-neu startet. Fünf Polls ohne Antwort ebenfalls. Bei Verbindungsverlust werden
-alle Messwerte ungültig gesetzt, nicht nur Strom und Leistung.
+neu startet. Fünf Polls ohne Antwort ebenfalls. Ein Block, der nicht echt sein
+kann (über 100 V oder 250 A), zählt wie ein Poll ohne Antwort. Bei
+Verbindungsverlust werden alle Messwerte und die Statuspfade ungültig gesetzt;
+Strom und Leistung gehen auf 0, der Temperaturalarm bleibt stehen. Vor jedem
+Ende wird der Energiezähler gesichert, auch bei SIGTERM von `svc -t`/`svc -d`.
+Beendet wird über `exit_process()` mit `os._exit`, das aus jedem Callback
+sicher beendet. Fehlen die Settings beim Start, ist das fatal; daemontools
+versucht es neu.
 
-Temperaturalarm 75/85 °C mit 5 K Hysterese nach unten.
+Temperaturalarm 75/85 °C mit 5 K Hysterese nach unten. Eine Stufe gilt erst
+nach zwei Messungen in Folge und übersteht einen Neustart (Datei unter
+`/run/tsbuckboost`).
+
+**Kein `/Dc/0/Temperature`.** Die MOSFET-Temperatur ist definitiv nicht die
+Batterietemperatur (Lars, 19.09.2026). Venus liest den Pfad aber so: systemcalc
+bietet jeden Alternator-Dienst mit gültigem `/Dc/0/Temperature` unter DVCC als
+Temperaturquelle an und verteilt den gewählten Wert als Batterietemperatur an
+alle Ladegeräte (`delegates/batterysense.py` in dbus-systemcalc-py, master
+346d925, gelesen am 18.09.2026, nicht gegen die Venus-Version auf einstein
+abgeglichen). Bis v1.20 stand dort der heißere MOSFET, seit v1.21 fehlt der Pfad,
+und die Geräteseite am GX hat keine Temperatur mehr. Die Zusatzgeräte tragen
+`/TemperatureType 2`; systemcalc nimmt nur Typ 0. Beides prüft
+`test_nothing_is_offered_as_battery_temperature`.
 
 ### Zusätzliche Temperatursensoren
 
@@ -111,30 +155,46 @@ VeDbusService hängt einen Handler an den Rootpfad `/`, davon gibt es genau
 einen pro D-Bus-Verbindung. Jeder Zusatzservice braucht deshalb seine eigene
 private Verbindung (`private_bus()`). Das war der Bug bis v1.11.
 
-Nach dem Umschalten muss der Treiber neu gestartet **und** die GUI neu
-gezeichnet werden, sonst bleiben tote Einträge stehen:
-`svc -t /service/TsBuckBoost`, dann `svc -t /service/start-gui`
-(auf älterem Venus OS `/service/gui`).
+Seit v1.21 startet der Treiber sich selbst neu, wenn sich das Setting ändert —
+egal wer es schreibt, Flow oder Konsole. Die GUI muss weiterhin neu gezeichnet
+werden, sonst bleiben tote Einträge stehen: `svc -t /service/start-gui` (auf
+älterem Venus OS `/service/gui`). Die Instanzen der Zusatzgeräte stehen in
+`/Settings/Devices/tsbuckboost_<key>/ClassAndVrmInstance`, vorbelegt 41–44.
 
 ### Node-RED
 
-Der Flow in `extras/` schaltet den Setting-Wert und startet Treiber und GUI neu.
+Der Flow in `extras/` schreibt den Setting-Wert und startet die GUI neu; den
+Treiber startet das Setting selbst neu (ab v1.21). Die JSON wird nicht von Hand
+bearbeitet: Das Audit vom 18.09.2026 hat den Flow neu gebaut, die JS-Texte
+stammen aus einem Generator. Wer ihn ändert, prüft mit `tests/test_flow.py`.
 
-Zwei Dinge, die Zeit gekostet haben und nicht wieder passieren sollen:
+Dinge, die Zeit gekostet haben und nicht wieder passieren sollen:
 
 * Der Service-Bezeichner in `victron-input-custom` lautet
   `com.victronenergy.alternator/40` — **mit Schrägstrich**. Die Punktform
   `com.victronenergy.alternator.40` geht über einen Legacy-Pfad, der den
   gecachten Wert nie liefert; die Knoten zeigen dann minutenlang
   „disconnected".
-* Der virtuelle Schalter sendet seinen Zustand direkt nach jedem Deploy erneut.
-  Der Flow ignoriert deshalb Nachrichten in den ersten fünf Sekunden nach dem
-  Deploy, sonst schreibt er bei jedem Deploy das Setting und startet alles neu.
+* Der virtuelle Schalter sendet seinen gespeicherten Zustand nach jedem Deploy
+  erneut. Bis v1.20 fing das eine Fünf-Sekunden-Sperre ab — am falschen Knoten,
+  ein langsamer Boot oder ein Deploy nur des Schalters rutschte durch und
+  schrieb den alten Stand ins Setting. Seit v1.21 wird die erste Meldung des
+  Schalters nach einem (Neu-)Start mit Lesen des Settings beantwortet, nie mit
+  Schreiben; danach zählt nur eine Änderung gegenüber dem zuletzt gesehenen
+  Stand als Befehl.
+* Befehle laufen nacheinander. Zwei gegenläufige Tipps kurz hintereinander
+  erzeugten bis v1.20 eine Endlosschleife aus Treiber- und GUI-Neustarts, weil
+  jede Rückmeldung in den Schalter einen neuen Lauf auslöste.
+* `svc` endet auch bei einem Fehler mit 0 und meldet ihn nur auf stderr (laut
+  Quelltext von daemontools, am GX nicht gemessen). Der Flow wertet deshalb die
+  Ausgabe aus, nicht den Exit-Code. Ob Node-RED auf einstein als root läuft und
+  `svc` überhaupt darf, ist nicht gemessen.
 
 Die Beschriftungen der Victron-Knoten kommen aus der festen Liste in
 `services.json` von `node-red-contrib-victron`. Ein Treiber kann sie nicht
-beeinflussen. `/Dc/0/Temperature` heißt dort „Battery temperature 0" — das ist
-nicht änderbar, nur umgehbar, indem man andere Pfade nimmt.
+beeinflussen. `/Dc/0/Temperature` heißt dort „Battery temperature 0" — und so
+behandelt Venus den Pfad auch, deshalb veröffentlicht der Treiber ihn seit v1.21
+nicht mehr (siehe oben). Die Temperaturen stehen unter `/Temperature/*`.
 
 ---
 
@@ -198,23 +258,54 @@ war; `~/Projekte` ist das alte Dokumentenverzeichnis und enthält keinen Code.
 **`changes` wird abgeschnitten statt ergänzt.** Zweimal passiert: f797818
 (v1.19) ließ von 6660 B nur 976 B übrig, c095815 reparierte es auf 7636 B, und
 958dfd0 (v1.20) schnitt erneut auf 723 B. Ein Skript schreibt die Datei, statt
-den neuen Eintrag voranzustellen.
+den neuen Eintrag voranzustellen. Alle drei Commits tragen einen
+`Claude-Session:`-Trailer und die Zeitzone +0000, sind also in
+claude.ai/code-Sitzungen entstanden, wo kein Hook läuft (am 18.09.2026 per
+`git log` geprüft). 958dfd0 hat außerdem v1.20 mit `VERSION = "1.19"`
+ausgeliefert.
 
-Dagegen steht seit dem 16.09.2026 `tools/pre-commit`: er bricht jeden Commit ab,
-bei dem `changes` kürzer wird als in HEAD. Gegengeprüft, indem die Verkürzung
-einmal absichtlich versucht wurde — er hat sie abgewiesen, auch das Löschen der
-Datei. Ein gewollter Schrumpf geht mit
-`TSBB_ALLOW_CHANGELOG_SHRINK=1 git commit`.
+Die erste Fassung des Hooks vom 16.09.2026 prüfte nur die Bytezahl. Am
+18.09.2026 in einem Wegwerf-Klon gemessen: Umbenennen (`git mv changes
+Changes`), gleich langes Überschreiben und längeres Neuschreiben ließ sie
+durch. Seit v1.21 prüft `tools/release-check`:
 
-Hooks liegen nicht im Klon, ein frischer Klon hat ihn also nicht. Einmal
-installieren:
+1. `changes` bleibt unter genau diesem Namen.
+2. Alles unterhalb des neuesten Eintrags in HEAD ist Byte für Byte das Ende
+   der neuen Datei. Der neueste Eintrag darf noch geändert werden.
+3. `version`, `VERSION` in `dbus-tsbb.py` und der oberste Eintrag in `changes`
+   nennen dieselbe Version.
+
+`tools/pre-commit` prüft das für jeden Commit in diesem Klon und lässt `tests/`
+laufen, wenn Treiber, Flow, Hooks oder Tests betroffen sind. `tools/pre-push`
+prüft jeden Commit, bevor er den Klon verlässt — auch solche, die per Pull aus
+einer Cloud-Sitzung kamen. Gewollte Änderungen an älteren Einträgen gehen mit
+`TSBB_ALLOW_CHANGELOG_EDIT=1 git commit` (die alte Variable
+`TSBB_ALLOW_CHANGELOG_SHRINK=1` gilt weiter), Tests überspringen mit
+`TSBB_SKIP_TESTS=1`. Gegen eine Versionsabweichung gibt es keinen Schalter.
+
+Gegengeprüft am 19.09.2026: Jede Regel und jeder Fix wurde in einer Kopie
+zurückgenommen, und der zugehörige Test wurde rot — 73 Mutationen (Hooks 13,
+Treiber 46, Flow 14), jeder Test von mindestens einer erfasst.
+
+Hooks liegen nicht im Klon. Einmal installieren, als Links, damit Änderungen
+an `tools/` sofort gelten:
 
 ```
-cp tools/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+ln -sf ../../tools/pre-commit .git/hooks/pre-commit
+ln -sf ../../tools/pre-push .git/hooks/pre-push
 ```
 
-Ein `git worktree` teilt sich das Hook-Verzeichnis mit dem Hauptbaum, dort ist
-nichts extra zu tun.
+Auf `hardware` fehlt `tools/`; die Links zeigen dort ins Leere, und git
+überspringt sie ohne Fehler (am 19.09.2026 mit git 2.54 gemessen). Ein
+`git worktree` teilt sich das Hook-Verzeichnis mit dem Hauptbaum.
+
+**Tests.** `python3 -m unittest discover -s tests` auf dem Mac. Der Treiber
+läuft dort gegen Attrappen für serial, dbus, gi, vedbus und settingsdevice, mit
+falscher Uhr und einem echten Pseudo-Terminal für die Leitungsprüfung; der Flow
+in `jsc`, der JavaScriptCore-Shell von macOS, und seine Shell-Befehle unter
+`/bin/sh` gegen nachgebaute `dbus`/`svc`. Ohne `jsc` werden die Flow-Tests
+sichtbar übersprungen. Am GX laufen die Tests nicht, und sie ersetzen keinen
+Versuch am Gerät.
 
 **`pkill -f <muster>`** trifft auch die eigene Shell, wenn das Muster in deren
 Kommandozeile steht. Testsequenzen in ein Skript legen und das killen.
@@ -236,6 +327,9 @@ Log mitlesen:
 ```
 tail -f /data/log/TsBuckBoost/current | tai64nlocal
 ```
+
+multilog beginnt alle 25 kB eine neue Datei; bleibt die Ausgabe stehen, den
+Befehl neu starten.
 
 Services und Schalterstand prüfen:
 
