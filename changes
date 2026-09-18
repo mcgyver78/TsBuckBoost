@@ -6,8 +6,8 @@ v1.21 - results of a full audit: read-only guard, careful probing, energy counte
   4800 baud FE CF arrives as F8 FE F8); now the driver restarts instead of sending.
   driver: the port of the converter is remembered in the settings and asked alone
   while it exists; all CP210x ports are only asked on the first start or when it
-  is gone. The probe wants a quiet line before the question, exactly one byte,
-  twice the same, and a type it can decode - a device that talks on its own, such
+  is gone. The probe wants a quiet line before the question, a short answer with
+  the same id twice, and a type it can decode - a device that talks on its own, such
   as a GPS, gets nothing written into it and keeps its service. The line settings
   found on a port are put back after the probe.
   driver: without a converter the process stays and searches again after 10 s,
@@ -25,6 +25,12 @@ v1.21 - results of a full audit: read-only guard, careful probing, energy counte
   driver: settings that are not there at start are fatal (daemontools retries)
   instead of running with instance 40 and a counter of 0; an unreadable counter
   or instance is no longer written over; a failed dcdc migration keeps the rest
+  driver: /Dc/0/Temperature is no longer published. Venus reads it as battery
+  temperature: systemcalc offered the Buck-Boost under DVCC as temperature sensor,
+  and chosen there the hotter MOSFET went to every charger as battery temperature.
+  The MOSFET temperatures stay on /Temperature/Mosfet1 and /Temperature/Mosfet2;
+  the GX device page has no temperature to show any more. If the Buck-Boost was
+  chosen as DVCC temperature sensor, choose another one.
   driver: restarts itself when SeparateTempSensors changes, whoever wrote it. The
   temperature devices take their instances from the settings, a CAN sensor that
   answers later gets its device, and a device that fails closes its connection.

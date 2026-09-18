@@ -27,7 +27,6 @@ series. Out of the box it can only be configured with the Windows tool *TSConfig
 | `/Dc/0/Current` | Output current (sum of the three measuring channels) |
 | `/Dc/0/Power` | Output power |
 | `/Dc/In/V`, `/Dc/1/Voltage` | Input voltage |
-| `/Dc/0/Temperature` | Hottest MOSFET temperature |
 | `/Temperature/Board` | Board temperature (byte 19) |
 | `/Temperature/Mosfet1`, `/Temperature/Mosfet2` | Both MOSFET temperatures (bytes 18, 20) |
 | `/Temperature/CanSensor` | CAN temperature sensor, invalid when no sensor is connected |
@@ -35,18 +34,20 @@ series. Out of the box it can only be configured with the Windows tool *TSConfig
 | `/StatusByte`, `/Status/Converting`, `/Status/BlockedByPin1` | Raw status byte and the two decoded bits |
 | `/State` | 3 = charging, 0 = off |
 | `/History/EnergyOut` | Energy delivered, kWh, kept across restarts |
-| `/Alarms/HighTemperature` | 0 = ok, 1 = warning at 75 °C, 2 = alarm at 85 °C (two readings in a row) |
+| `/Alarms/HighTemperature` | 0 = ok, 1 = warning at 75 °C, 2 = alarm at 85 °C on the hotter MOSFET (two readings in a row) |
 | `/Mode` | 1 = enabled, 4 = disabled through pin 1 (read-only) |
 | `/DeviceOffReason` | 0x08 = remote connector, set while pin 1 disables the unit |
 | `/ProductName`, `/Serial`, `/FirmwareVersion` | Device identification |
 
 > **Note on the GX display:** the alternator device page renders a fixed set of
-> paths — output voltage, current, power, state and temperature. Everything beyond
-> that (the individual temperatures, the current channels, the pin 1 state) is
-> published on D-Bus but not drawn by the GUI, and there is no way for a driver to
-> change that. Read those values through MQTT, the Victron nodes in Node-RED, or
-> directly. The service name carries the tty the converter is on; the first
-> command shows it:
+> paths — output voltage, current, power and state. Its temperature line would
+> come from `/Dc/0/Temperature`, which this driver leaves out on purpose (see
+> *No battery temperature* below). Everything beyond that (the temperatures, the
+> current channels, the pin 1 state) is published on D-Bus but not drawn by the
+> GUI, and there is no way for a driver to change that. To see the temperatures on
+> the GX, switch on the separate temperature devices (below); read the rest through
+> MQTT, the Victron nodes in Node-RED, or directly. The service name carries the
+> tty the converter is on; the first command shows it:
 >
 > ```bash
 > dbus -y | grep tsbb
@@ -56,33 +57,39 @@ series. Out of the box it can only be configured with the Windows tool *TSConfig
 ### Naming in Node-RED
 
 The Victron nodes for Node-RED label every path from a fixed list of their own
-(`services.json` in `node-red-contrib-victron`), written for real alternators. Two
-labels therefore read oddly for a DC-DC converter, and a driver cannot change them:
+(`services.json` in `node-red-contrib-victron`), written for real alternators. One
+label therefore reads oddly for a DC-DC converter, and a driver cannot change it:
 
 | Path | Node-RED calls it | What it really is |
 |---|---|---|
-| `/Dc/0/Temperature` | *Battery temperature 0 (°C)* | hottest MOSFET of the converter |
 | `/Dc/1/Voltage` | *Battery voltage 1 (V)* | input voltage, shown as *Aux voltage* on the GX |
 
-Both values exist under a second, correctly named path — use those instead:
+The same value exists under a correctly named path: `/Dc/In/V`, listed as *Input
+voltage (before DC/DC converter)*.
 
-- input voltage: `/Dc/In/V`, listed as *Input voltage (before DC/DC converter)*
-- temperatures: the four *Custom* input nodes in the flow under `extras/` read
-  `/Temperature/Board`, `/Temperature/Mosfet1`, `/Temperature/Mosfet2` and
-  `/Temperature/CanSensor` straight from the driver's service, correctly named and
-  without any extra device. Alternatively switch on the separate temperature devices
-  (below); they appear as their own Victron *Temperature* nodes named *Buck-Boost
-  Board*, *Buck-Boost MOSFET 1*, *Buck-Boost MOSFET 2* and *Buck-Boost CAN sensor*.
+The temperatures are published under their own names only. The four *Custom* input
+nodes in the flow under `extras/` read `/Temperature/Board`, `/Temperature/Mosfet1`,
+`/Temperature/Mosfet2` and `/Temperature/CanSensor` straight from the driver's
+service, without any extra device. Alternatively switch on the separate temperature
+devices (below); they appear as their own Victron *Temperature* nodes named
+*Buck-Boost Board*, *Buck-Boost MOSFET 1*, *Buck-Boost MOSFET 2* and *Buck-Boost CAN
+sensor*.
 
-`/Dc/0/Temperature` is kept because it is the only temperature the GX device page
-draws — there it is labelled *Temperature*, which is accurate.
+### No battery temperature
 
-**Never choose the Buck-Boost as battery temperature.** Venus OS may offer it under
-*Settings → DVCC → Temperature sensor*, because it publishes `/Dc/0/Temperature`.
-Chosen there, 40–85 °C of MOSFET temperature would reach every charger as battery
+The converter measures its board and its MOSFETs, and neither is the battery. Since
+v1.21 the driver therefore does **not** publish `/Dc/0/Temperature`: Venus OS reads
+that path as battery temperature. systemcalc offers every alternator service with a
+valid `/Dc/0/Temperature` under *Settings → DVCC → Temperature sensor*, and chosen
+there, 40–85 °C of MOSFET temperature would reach every charger as battery
 temperature: the temperature compensation of lead batteries would lower the charge
 voltage, and the low-temperature charge stop of a lithium battery would not trigger
-in winter.
+in winter. Up to v1.20 the hotter MOSFET was published there.
+
+If the Buck-Boost was chosen as temperature sensor under DVCC before the update,
+choose another source: the entry is gone afterwards, and until then DVCC has no
+battery temperature at all. The separate temperature devices are published as
+generic temperature, which DVCC does not offer.
 
 ### Safety
 
@@ -282,7 +289,8 @@ port is gone, are all `/dev/serial/by-id/*CP210*` ports asked.
 
 A port is asked with care. The line has to stay quiet before the question — a device
 that talks on its own, like a GPS, gets nothing written into it —, the answer has to
-be exactly one byte, twice the same, and a type the driver can decode. Only then is
+be short, name the same id twice, and be a type the driver can decode. The id is one
+byte; should a converter send a few more, the log says so. Only then is
 the port taken away from serial-starter; a foreign CP210x device keeps its own
 service. Opening a port sets its line for every process that has it open, so the
 settings found on it are put back after the question.
@@ -477,7 +485,6 @@ konfigurieren.
 | `/Dc/0/Current` | Ausgangsstrom (Summe der drei Messkanäle) |
 | `/Dc/0/Power` | Ausgangsleistung |
 | `/Dc/In/V`, `/Dc/1/Voltage` | Eingangsspannung |
-| `/Dc/0/Temperature` | heißeste MOSFET-Temperatur |
 | `/Temperature/Board` | Platinentemperatur (Byte 19) |
 | `/Temperature/Mosfet1`, `/Temperature/Mosfet2` | beide MOSFET-Temperaturen (Byte 18, 20) |
 | `/Temperature/CanSensor` | CAN-Temperatursensor, ungültig wenn keiner angeschlossen ist |
@@ -485,18 +492,21 @@ konfigurieren.
 | `/StatusByte`, `/Status/Converting`, `/Status/BlockedByPin1` | rohes Statusbyte und die beiden dekodierten Bits |
 | `/State` | 3 = lädt, 0 = aus |
 | `/History/EnergyOut` | gelieferte Energie in kWh, überlebt Neustarts |
-| `/Alarms/HighTemperature` | 0 = ok, 1 = Warnung ab 75 °C, 2 = Alarm ab 85 °C (zwei Messungen in Folge) |
+| `/Alarms/HighTemperature` | 0 = ok, 1 = Warnung ab 75 °C, 2 = Alarm ab 85 °C am heißeren MOSFET (zwei Messungen in Folge) |
 | `/Mode` | 1 = freigegeben, 4 = über Pin 1 gesperrt (nur lesbar) |
 | `/DeviceOffReason` | 0x08 = Remote connector, gesetzt solange Pin 1 sperrt |
 | `/ProductName`, `/Serial`, `/FirmwareVersion` | Gerätekennung |
 
 > **Hinweis zum GX-Display:** Die Alternator-Geräteseite zeichnet einen festen Satz
-> von Pfaden — Ausgangsspannung, -strom, -leistung, Zustand und eine Temperatur.
-> Alles darüber hinaus (die einzelnen Temperaturen, die Strommesskanäle, der
-> Pin-1-Zustand) liegt auf dem D-Bus, wird von der Oberfläche aber nicht angezeigt,
-> und ein Treiber kann daran nichts ändern. Auslesen über MQTT, die Victron-Nodes
-> in Node-RED oder direkt. Der Dienstname trägt das tty, an dem der Wandler hängt;
-> der erste Befehl zeigt ihn:
+> von Pfaden — Ausgangsspannung, -strom, -leistung und Zustand. Ihre
+> Temperaturzeile käme aus `/Dc/0/Temperature`, und den Pfad lässt dieser Treiber
+> absichtlich weg (siehe *Keine Batterietemperatur* unten). Alles darüber hinaus (die
+> Temperaturen, die Strommesskanäle, der Pin-1-Zustand) liegt auf dem D-Bus, wird
+> von der Oberfläche aber nicht angezeigt, und ein Treiber kann daran nichts ändern.
+> Die Temperaturen zeigt das GX, wenn die separaten Temperaturgeräte eingeschaltet
+> sind (siehe unten); den Rest über MQTT, die Victron-Nodes in Node-RED oder direkt
+> auslesen. Der Dienstname trägt das tty, an dem der Wandler hängt; der erste Befehl
+> zeigt ihn:
 >
 > ```bash
 > dbus -y | grep tsbb
@@ -507,35 +517,39 @@ konfigurieren.
 
 Die Victron-Nodes für Node-RED beschriften jeden Pfad aus einer eigenen, festen
 Liste (`services.json` in `node-red-contrib-victron`), geschrieben für echte
-Lichtmaschinen. Zwei Beschriftungen lesen sich für einen DC-DC-Wandler deshalb
+Lichtmaschinen. Eine Beschriftung liest sich für einen DC-DC-Wandler deshalb
 schief, und ein Treiber kann daran nichts ändern:
 
 | Pfad | Node-RED nennt ihn | Was es wirklich ist |
 |---|---|---|
-| `/Dc/0/Temperature` | *Battery temperature 0 (°C)* | heißester MOSFET des Wandlers |
 | `/Dc/1/Voltage` | *Battery voltage 1 (V)* | Eingangsspannung, im GX als *Aux voltage* |
 
-Beide Werte gibt es unter einem zweiten, korrekt benannten Pfad — nimm die:
+Denselben Wert gibt es unter einem korrekt benannten Pfad: `/Dc/In/V`, in der Liste
+als *Input voltage (before DC/DC converter)*.
 
-- Eingangsspannung: `/Dc/In/V`, in der Liste als *Input voltage (before DC/DC
-  converter)*
-- Temperaturen: die vier *Custom*-Eingangs-Nodes im Flow unter `extras/` lesen
-  `/Temperature/Board`, `/Temperature/Mosfet1`, `/Temperature/Mosfet2` und
-  `/Temperature/CanSensor` direkt aus dem Dienst des Treibers — korrekt benannt und
-  ohne zusätzliches Gerät. Alternativ die separaten Temperaturgeräte einschalten
-  (siehe unten); sie erscheinen als eigene Victron-*Temperature*-Nodes namens
-  *Buck-Boost Board*, *Buck-Boost MOSFET 1*, *Buck-Boost MOSFET 2* und *Buck-Boost
-  CAN sensor*.
+Die Temperaturen liegen nur unter eigenen Namen. Die vier *Custom*-Eingangs-Nodes im
+Flow unter `extras/` lesen `/Temperature/Board`, `/Temperature/Mosfet1`,
+`/Temperature/Mosfet2` und `/Temperature/CanSensor` direkt aus dem Dienst des
+Treibers, ohne zusätzliches Gerät. Alternativ die separaten Temperaturgeräte
+einschalten (siehe unten); sie erscheinen als eigene Victron-*Temperature*-Nodes
+namens *Buck-Boost Board*, *Buck-Boost MOSFET 1*, *Buck-Boost MOSFET 2* und
+*Buck-Boost CAN sensor*.
 
-`/Dc/0/Temperature` bleibt trotzdem bestehen, weil es die einzige Temperatur ist,
-die die GX-Geräteseite zeichnet — dort steht *Temperature*, und das stimmt.
+### Keine Batterietemperatur
 
-**Den Buck-Boost nie als Batterietemperatur wählen.** Venus OS bietet ihn unter
-*Settings → DVCC → Temperature sensor* womöglich an, weil er `/Dc/0/Temperature`
-veröffentlicht. Dort gewählt, ginge 40–85 °C MOSFET-Temperatur als Batterietemperatur
-an alle Ladegeräte: Die Temperaturkompensation von Bleibatterien würde die
-Ladespannung senken, und die Kälte-Ladesperre einer Lithiumbatterie griffe im Winter
-nicht.
+Der Wandler misst seine Platine und seine MOSFETs, und keins davon ist die Batterie.
+Seit v1.21 veröffentlicht der Treiber deshalb **kein** `/Dc/0/Temperature`: Venus OS
+liest diesen Pfad als Batterietemperatur. systemcalc bietet jeden Alternator-Dienst
+mit gültigem `/Dc/0/Temperature` unter *Settings → DVCC → Temperature sensor* an, und
+dort gewählt, ginge 40–85 °C MOSFET-Temperatur als Batterietemperatur an alle
+Ladegeräte: Die Temperaturkompensation von Bleibatterien würde die Ladespannung
+senken, und die Kälte-Ladesperre einer Lithiumbatterie griffe im Winter nicht. Bis
+v1.20 stand dort der heißere MOSFET.
+
+War der Buck-Boost vor dem Update unter DVCC als Temperatursensor gewählt, eine
+andere Quelle wählen: Der Eintrag ist danach weg, und bis dahin hat DVCC gar keine
+Batterietemperatur. Die separaten Temperaturgeräte laufen als allgemeine
+Temperatur, die DVCC nicht anbietet.
 
 ### Sicherheit
 
@@ -748,8 +762,9 @@ fehlt, fragt er alle `/dev/serial/by-id/*CP210*`-Ports.
 
 Gefragt wird mit Vorsicht. Vor der Frage muss die Leitung still sein — ein Gerät, das
 von sich aus sendet, etwa ein GPS, bekommt nichts hineingeschrieben —, die Antwort
-muss genau ein Byte sein, zweimal dasselbe, und ein Typ, den der Treiber dekodieren
-kann. Erst dann wird der Port dem serial-starter entzogen; ein fremdes CP210x-Gerät
+muss kurz sein, zweimal dieselbe Kennung nennen und ein Typ sein, den der Treiber
+dekodieren kann. Die Kennung ist ein Byte; schickt ein Wandler ein paar mehr, steht
+das im Log. Erst dann wird der Port dem serial-starter entzogen; ein fremdes CP210x-Gerät
 behält seinen eigenen Dienst. Das Öffnen eines Ports stellt die Leitung für jeden
 Prozess um, der ihn offen hat; die vorgefundene Einstellung wird nach der Frage
 deshalb wiederhergestellt.

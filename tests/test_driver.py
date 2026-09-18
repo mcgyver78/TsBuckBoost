@@ -89,7 +89,7 @@ class FakeConverter(object):
         self.aux = bytes([(-101) & 0xFF, 0, 0, 0])     # no CAN sensor
         self.answer_aux = True
         self.silent = False
-        self.extra = b""              # sent after the id: not a converter
+        self.extra = b""              # sent after the id
         self.broken = False
 
     def respond(self, frame):
@@ -127,6 +127,13 @@ class Talker(FakeConverter):
         out = bytes(NMEA[(self.pos + i) % len(NMEA)] for i in range(n))
         self.pos += n
         return out
+
+
+class Streamer(FakeConverter):
+    """Quiet until asked, then a burst that starts with a valid id."""
+
+    def respond(self, frame):
+        return b"q" + NMEA * 3
 
 
 class World(object):
@@ -480,11 +487,18 @@ class Probe(DriverTest):
         self.assertIsNone(self.mod.probe_identity(port))
         self.assertEqual(self.world.frames, [])
 
-    def test_more_than_one_byte_is_no_converter(self):
-        conv = FakeConverter()
-        conv.extra = b"W"
-        port = self.add_port("A", conv)
+    def test_a_stream_after_the_question_is_no_converter(self):
+        port = self.add_port("A", Streamer())
         self.assertIsNone(self.mod.probe_identity(port))
+
+    def test_a_short_tail_after_the_id_is_taken_and_logged(self):
+        # One byte is what the protocol says, not what was measured on the
+        # converter; a tail must not cost the converter its discovery.
+        conv = FakeConverter()
+        conv.extra = b"\x00"
+        port = self.add_port("A", conv)
+        self.assertEqual(self.mod.probe_identity(port), 113)
+        self.assertTrue(self.logged("more than its id: 7100 / 7100"))
 
     def test_an_old_short_block_type_is_left_with_serial_starter(self):
         self.add_port("A", FakeConverter(dev_id=63))       # TS400
@@ -753,6 +767,28 @@ class TemperatureDevices(DriverTest):
         self.assertNotIn("Mosfet2", drv.temp_services)
         self.assertEqual(len(drv.temp_buses), 2)
         self.assertTrue(all(not bus.closed for bus in drv.temp_buses))
+
+    def test_nothing_is_offered_as_battery_temperature(self):
+        # systemcalc's rule for the DVCC temperature source (dbus-systemcalc-py,
+        # delegates/batterysense.py, device_added): these classes with a valid
+        # /Dc/0/Temperature, temperature services only with /TemperatureType 0.
+        # MOSFET heat must never become battery temperature.
+        drv = self.with_devices()
+        self.conv.aux = bytes([21, 0, 0, 0])
+        self.poll(drv, 3)
+        classes = ("battery", "vebus", "solarcharger", "inverter", "multi", "alternator")
+        seen, offered = set(), []
+        for s in self.world.services:
+            cls = s.name.split(".")[2]
+            seen.add(cls)
+            if cls in classes and s.paths.get("/Dc/0/Temperature") is not None:
+                offered.append(s.name)
+            if cls == "temperature" and s.paths.get("/TemperatureType") == 0:
+                offered.append(s.name)
+        self.assertEqual(seen, {"alternator", "temperature"})
+        self.assertIsNotNone(drv.svc["/Temperature/Mosfet1"])
+        self.assertEqual(len(drv.temp_services), 4)
+        self.assertEqual(offered, [])
 
 
 class Calibration(DriverTest):

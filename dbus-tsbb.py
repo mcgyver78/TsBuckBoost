@@ -157,9 +157,15 @@ SUPPORTED_IDS = frozenset(i for i, n in IDS.items() if INTERNAL.get(n, n) in LON
 # The only frames this driver ever sends start with FE and one of these.
 READ_OPCODES = (0x11, 0xD0, 0xCF)
 TYPE_QUERY = bytes([0xFE, 0x11, 0x1F, 0xF2, 0x01])
-# How long a line has to stay quiet before the type query and after its
-# one-byte answer.
+# How long a line has to stay quiet before the type query, and how long the
+# probe listens after each answer.
 PROBE_QUIET = 0.2
+# The answer to the type query is the id, one byte - so says the protocol as
+# read from TSConfig; on the converter itself that is not measured. A short
+# answer that starts with the same id both times therefore still counts, and
+# the extra bytes are logged. A device that streams sends more than this
+# within PROBE_QUIET.
+TYPE_ANSWER_MAX = 4
 CRTSCTS = getattr(termios, "CRTSCTS", 0)
 
 
@@ -321,7 +327,7 @@ SKIP = "skip"
 
 def _probe_once(port):
     """One session on a port: the id if it answered like a converter, SKIP if
-    it talked unasked, answered more than one byte, disagreed with itself or
+    it talked unasked, sent more than a short answer, disagreed with itself or
     could not be used, None if it stayed silent."""
     try:
         ser = open_serial(port, exclusive=True)
@@ -339,7 +345,7 @@ def _probe_once(port):
         time.sleep(PROBE_QUIET)
         if ser.in_waiting:
             return SKIP         # talks without being asked: nothing is written
-        ids = []
+        answers = []
         for _ in range(2):
             ser.reset_input_buffer()
             send_read(ser, TYPE_QUERY)
@@ -347,11 +353,18 @@ def _probe_once(port):
             if not r:
                 return None
             time.sleep(PROBE_QUIET)
-            if ser.in_waiting:
-                return SKIP     # a converter answers with exactly one byte
-            ids.append(r[0])
+            more = ser.in_waiting
+            if len(r) + more > TYPE_ANSWER_MAX:
+                return SKIP     # a stream, not an answer
+            if more:
+                r += ser.read(more)
+            answers.append(bytes(r))
+        ids = [a[0] for a in answers]
         if ids[0] != ids[1] or ids[0] not in IDS:
             return SKIP
+        if any(len(a) > 1 for a in answers):
+            log("%s answers the type query with more than its id: %s"
+                % (port, " / ".join(a.hex() for a in answers)))
         return ids[0]
     except LineChanged as e:
         log("%s - %s skipped" % (e, port))
@@ -368,12 +381,12 @@ def _probe_once(port):
 def probe_identity(port, attempts=4):
     """Ask a port for the converter id without taking it away from anyone.
 
-    A converter says nothing unless asked and answers the type query with
-    exactly one byte. A foreign device that talks on its own - a GPS, a BMS -
+    A converter says nothing unless asked and answers the type query with its
+    id, one byte. A foreign device that talks on its own - a GPS, a BMS -
     sends whether asked or not, and 13 of the 256 byte values are ids, all of
-    them printable ASCII. So the line has to be quiet before the question and
-    after the answer, and two answers in a row have to agree; a talking port
-    is left before anything is written into it.
+    them printable ASCII. So the line has to be quiet before the question,
+    the answer has to be short, and two answers in a row have to name the
+    same id; a talking port is left before anything is written into it.
 
     serial-starter may be probing the same port and take the answer away, so
     a silent attempt is repeated. Returns the device id, or None.
@@ -903,7 +916,7 @@ class Driver(object):
         s.add_path("/Alarms/HighTemperature", self.temp_alarm)  # 0 ok, 1 warning, 2 alarm
         s.add_path("/History/EnergyOut", round(self.energy, 2) if self.energy_known else None)
         for p in ("/Dc/0/Voltage", "/Dc/0/Current", "/Dc/0/Power",
-                  "/Dc/In/V", "/Dc/1/Voltage", "/Dc/0/Temperature",
+                  "/Dc/In/V", "/Dc/1/Voltage",
                   # everything else the converter offers — the same values
                   # TSConfig shows in its monitor window
                   "/Temperature/Board", "/Temperature/Mosfet1",
@@ -988,7 +1001,9 @@ class Driver(object):
             svc.add_path("/ProductName", "Buck-Boost %s" % label)
             svc.add_path("/CustomName", "Buck-Boost %s" % label)
             svc.add_path("/Connected", 1)
-            svc.add_path("/TemperatureType", 2)    # 2 = generic
+            # 2 = generic. Never 0: systemcalc offers type 0 (battery) under
+            # DVCC as the battery temperature source.
+            svc.add_path("/TemperatureType", 2)
             svc.add_path("/Status", 0)             # 0 = ok, 1 = disconnected
             svc.add_path("/Temperature", None)
             if deferred:
@@ -1100,7 +1115,7 @@ class Driver(object):
         s["/Dc/0/Power"] = 0
         # Old readings must not linger on the bus as if they were current. The
         # temperature alarm stays: silence is no proof the converter cooled down.
-        for p in ("/Dc/0/Voltage", "/Dc/In/V", "/Dc/1/Voltage", "/Dc/0/Temperature",
+        for p in ("/Dc/0/Voltage", "/Dc/In/V", "/Dc/1/Voltage",
                   "/Temperature/Board", "/Temperature/Mosfet1",
                   "/Temperature/Mosfet2", "/Temperature/CanSensor",
                   "/Current/Channel1", "/Current/Channel2", "/Current/Channel3",
@@ -1183,17 +1198,15 @@ class Driver(object):
         s["/Dc/0/Power"] = d["power"]
         s["/Dc/In/V"] = d["v_in"]
         s["/Dc/1/Voltage"] = d["v_in"]
-        # The alternator class has no path for the converter's own temperature.
-        # /Dc/0/Temperature is the only temperature the GX device page renders,
-        # so it carries the hotter of the two MOSFETs - the same number the
-        # alarm below reacts to. The Victron Node-RED nodes label this path
-        # "Battery temperature 0"; that text lives in their services.json and
-        # cannot be changed from here. Use the separate temperature devices
-        # for correctly named values in Node-RED. systemcalc offers this path
-        # as a battery temperature source under DVCC: it must never be chosen
-        # there (see the ReadMe).
+        # No /Dc/0/Temperature, on purpose: Venus reads that path as battery
+        # temperature. systemcalc offers every alternator service with a valid
+        # /Dc/0/Temperature under DVCC as the battery temperature source
+        # (dbus-systemcalc-py, delegates/batterysense.py), and chosen there it
+        # would hand MOSFET heat to every charger. Up to v1.20 the hotter
+        # MOSFET went there for the temperature line of the GX device page;
+        # that line is gone with it. The separate temperature devices carry
+        # /TemperatureType 2, which systemcalc does not offer.
         hottest = max(d["t_mosfet1"], d["t_mosfet2"])
-        s["/Dc/0/Temperature"] = hottest
         s["/Temperature/Board"] = d["t_board"]
         s["/Temperature/Mosfet1"] = d["t_mosfet1"]
         s["/Temperature/Mosfet2"] = d["t_mosfet2"]

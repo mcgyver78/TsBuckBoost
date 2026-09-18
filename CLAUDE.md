@@ -37,7 +37,9 @@ Claude hat keine Zugangsdaten für dieses Repo und soll auch keine anfordern.
 Commits und Pushes macht Lars selbst auf seinem Mac.
 
 Das Projekt liegt auf **GitHub** und zusätzlich immer als **Kopie auf GitLab**.
-Was auf einem landet, gehört auch auf den anderen — beide Branches.
+Was auf einem landet, gehört auch auf den anderen — beide Branches. Die
+GitLab-Kopie ist das Backup; dass Host, Port und Gruppe hier öffentlich stehen,
+bleibt so (Audit-Befund 56, Lars am 19.09.2026). Schlüssel stehen hier keine.
 
 ```
 origin   git@github.com:mcgyver78/TsBuckBoost.git                      (SSH)
@@ -101,8 +103,12 @@ Protokoll: 9600 8N1, DTR+RTS gesetzt, keine Prüfsumme. Port über
 `/dev/serial/by-id/`, CP210x. Der Treiber merkt sich den bestätigten Port in
 `/Settings/Devices/tsbuckboost/Port` und fragt, solange der existiert, nur ihn
 (vorher `stop-tty.sh`). Nur beim ersten Start, oder wenn er fehlt, fragt er alle
-Kandidaten — vorsichtig: Leitung vor der Frage still, genau ein Byte Antwort,
-zweimal dasselbe, nur Typen, die er dekodieren kann. Erst dann löst er den Port
+Kandidaten — vorsichtig: Leitung vor der Frage still, kurze Antwort, zweimal
+dieselbe Kennung, nur Typen, die er dekodieren kann. Die Kennung ist ein Byte;
+dass der Wandler danach schweigt, sagt nur das aus TSConfig gelesene Protokoll,
+am Gerät ist es nicht gemessen. Bis zu drei Folgebytes gelten deshalb noch als
+Antwort und stehen im Log (`answers the type query with more than its id`); ein
+Gerät, das streamt, schickt mehr. Erst dann löst er den Port
 vom serial-starter; ein fremdes CP210x-Gerät behält seinen Service. Die
 vorgefundene Leitungseinstellung wird nach der Probe zurückgeschrieben. Ohne
 Wandler bleibt der Prozess und fragt nach 10 s bis 5 min erneut, ein neuer Port
@@ -125,6 +131,17 @@ versucht es neu.
 Temperaturalarm 75/85 °C mit 5 K Hysterese nach unten. Eine Stufe gilt erst
 nach zwei Messungen in Folge und übersteht einen Neustart (Datei unter
 `/run/tsbuckboost`).
+
+**Kein `/Dc/0/Temperature`.** Die MOSFET-Temperatur ist definitiv nicht die
+Batterietemperatur (Lars, 19.09.2026). Venus liest den Pfad aber so: systemcalc
+bietet jeden Alternator-Dienst mit gültigem `/Dc/0/Temperature` unter DVCC als
+Temperaturquelle an und verteilt den gewählten Wert als Batterietemperatur an
+alle Ladegeräte (`delegates/batterysense.py` in dbus-systemcalc-py, master
+346d925, gelesen am 18.09.2026, nicht gegen die Venus-Version auf einstein
+abgeglichen). Bis v1.20 stand dort der heißere MOSFET, seit v1.21 fehlt der Pfad,
+und die Geräteseite am GX hat keine Temperatur mehr. Die Zusatzgeräte tragen
+`/TemperatureType 2`; systemcalc nimmt nur Typ 0. Beides prüft
+`test_nothing_is_offered_as_battery_temperature`.
 
 ### Zusätzliche Temperatursensoren
 
@@ -175,8 +192,9 @@ Dinge, die Zeit gekostet haben und nicht wieder passieren sollen:
 
 Die Beschriftungen der Victron-Knoten kommen aus der festen Liste in
 `services.json` von `node-red-contrib-victron`. Ein Treiber kann sie nicht
-beeinflussen. `/Dc/0/Temperature` heißt dort „Battery temperature 0" — das ist
-nicht änderbar, nur umgehbar, indem man andere Pfade nimmt.
+beeinflussen. `/Dc/0/Temperature` heißt dort „Battery temperature 0" — und so
+behandelt Venus den Pfad auch, deshalb veröffentlicht der Treiber ihn seit v1.21
+nicht mehr (siehe oben). Die Temperaturen stehen unter `/Temperature/*`.
 
 ---
 
@@ -266,8 +284,8 @@ einer Cloud-Sitzung kamen. Gewollte Änderungen an älteren Einträgen gehen mit
 `TSBB_SKIP_TESTS=1`. Gegen eine Versionsabweichung gibt es keinen Schalter.
 
 Gegengeprüft am 19.09.2026: Jede Regel und jeder Fix wurde in einer Kopie
-zurückgenommen, und der zugehörige Test wurde rot — 69 Mutationen (Hooks 13,
-Treiber 42, Flow 14), jeder Test von mindestens einer erfasst.
+zurückgenommen, und der zugehörige Test wurde rot — 73 Mutationen (Hooks 13,
+Treiber 46, Flow 14), jeder Test von mindestens einer erfasst.
 
 Hooks liegen nicht im Klon. Einmal installieren, als Links, damit Änderungen
 an `tools/` sofort gelten:
