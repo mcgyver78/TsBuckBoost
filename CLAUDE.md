@@ -80,7 +80,7 @@ Dateien auf `latest`:
 dbus-tsbb.py        der Treiber (VERSION-Konstante oben, muss zu `version` passen)
 version             z.B. v1.22
 changes             Changelog, neueste Version oben
-setup               SetupHelper-Hook
+setup               SetupHelper-Hook, stellt die udev-Regel nach Firmware-Updates wieder her
 find-port.sh        listet nur Kandidatenports, das Suchen macht der Treiber
 services/TsBuckBoost/run + log/run
 extras/nodered-separate-temp-sensors.json
@@ -123,6 +123,24 @@ beendet die Wartezeit. Wird ein Port als Argument übergeben, entfallen Suche,
 
 Alte Kurzblock-Typen (TS200/400/800/800C) werden erkannt und nicht angefasst:
 kein `stop-tty.sh`, im Log `model not supported`.
+
+Seit v1.23 legt der Treiber nach dem Erkennen eine udev-Regel an:
+`/etc/udev/rules.d/99-tsbuckboost.rules` mit `VE_SERVICE=ignore` für die
+Seriennummer des Adapters (Audit-Befund 4). Die Kopie in
+`/data/conf/tsbuckboost-udev.rules` bringt `setup` nach einem Firmware-Update
+zurück, beim Deinstallieren gehen beide. Seriennummern unter acht Zeichen
+bekommen keine Regel, ältere CP2102 melden alle `0001`. Die Regel wirkt erst,
+wenn der Adapter das nächste Mal angemeldet wird. Sie ist die einzige Datei des
+Pakets außerhalb von `/data/TsBuckBoost`; geschrieben wird sie vom Treiber, nicht
+von `setup`.
+
+Auf einstein war der Adapter schon vorher ausgenommen, gemessen am 19.09.2026:
+Zeile 4 der Regel von dbus-autoterm (`/etc/udev/rules.d/99-dbus-autoterm.rules`)
+trägt seine Seriennummer; wie sie dort hineinkam, ist unklar. Dieselbe
+Messung: dbus-autoterm spricht die Air 2D über `/dev/ttyUSB0` an, nicht über den
+by-id-Namen. ttyUSB0 ist seit dem Neustart am 14.09. deren FTDI-Adapter, davor
+lag der Wandler auf ttyUSB1. Landet er einmal auf ttyUSB0, schreibt der
+Heizungstreiber in den Wandler. Das gehört ins Projekt dbus-autoterm.
 
 Fehlerverhalten: jeder Fehler im Poll beendet den Prozess, damit daemontools
 neu startet. Fünf Polls ohne Antwort ebenfalls. Ein Block, der nicht echt sein
@@ -301,8 +319,8 @@ einer Cloud-Sitzung kamen. Gewollte Änderungen an älteren Einträgen gehen mit
 `TSBB_SKIP_TESTS=1`. Gegen eine Versionsabweichung gibt es keinen Schalter.
 
 Gegengeprüft am 19.09.2026: Jede Regel und jeder Fix wurde in einer Kopie
-zurückgenommen, und der zugehörige Test wurde rot — 74 Mutationen (Hooks 13,
-Treiber 46, Flow 15), jeder Test von mindestens einer erfasst.
+zurückgenommen, und der zugehörige Test wurde rot — 84 Mutationen (Hooks 14,
+Treiber 51, Flow 15, setup 4), jeder Test von mindestens einer erfasst.
 
 Hooks liegen nicht im Klon. Einmal installieren, als Links, damit Änderungen
 an `tools/` sofort gelten:
@@ -320,9 +338,10 @@ Auf `hardware` fehlt `tools/`; die Links zeigen dort ins Leere, und git
 läuft dort gegen Attrappen für serial, dbus, gi, vedbus und settingsdevice, mit
 falscher Uhr und einem echten Pseudo-Terminal für die Leitungsprüfung; der Flow
 in `jsc`, der JavaScriptCore-Shell von macOS, und seine Shell-Befehle unter
-`/bin/sh` gegen nachgebaute `dbus`/`svc`. Ohne `jsc` werden die Flow-Tests
-sichtbar übersprungen. Am GX laufen die Tests nicht, und sie ersetzen keinen
-Versuch am Gerät.
+`/bin/sh` gegen nachgebaute `dbus`/`svc`; `setup` unter `bash` gegen eine
+Attrappe der IncludeHelpers von SetupHelper und ein nachgebautes `udevadm`. Ohne
+`jsc` werden die Flow-Tests sichtbar übersprungen. Am GX laufen die Tests nicht,
+und sie ersetzen keinen Versuch am Gerät.
 
 **`pkill -f <muster>`** trifft auch die eigene Shell, wenn das Muster in deren
 Kommandozeile steht. Testsequenzen in ein Skript legen und das killen.
