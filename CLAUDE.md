@@ -29,12 +29,16 @@ dem tty, nicht dem Deskriptor — ein Probe-Dienst, der den Port öffnet und sei
 Baudrate setzt, stellt sie auch für den Treiber um, und bei 4800 käme `FE CF`
 als `F8 FE F8` an (gerechnet im Audit am 18.09.2026, nicht am Gerät gemessen).
 Dann wird nichts gesendet, und der Treiber startet neu. `exclusive=True` ist in
-pyserial nur ein beratendes flock und hält solche Prozesse nicht ab.
+pyserial nur ein beratendes flock und hält solche Prozesse nicht ab. Am
+19.09.2026 auf einstein gemessen: Die Prüfung hält am echten CP210x-Port, rund
+300 Abfragen in zehn Minuten und mehrere Neustarts ohne einen Fehlalarm.
 
 ## Zugangsdaten
 
 Claude hat keine Zugangsdaten für dieses Repo und soll auch keine anfordern.
-Commits und Pushes macht Lars selbst auf seinem Mac.
+Auf Lars' Mac darf Claude seit dem 19.09.2026 selbst committen und pushen
+(„du darfst pushen dauerhaft"), immer auf beide Remotes. Lehnt die
+Rechteprüfung der Sitzung einen Push ab, bekommt Lars den fertigen Befehl.
 
 Das Projekt liegt auf **GitHub** und zusätzlich immer als **Kopie auf GitLab**.
 Was auf einem landet, gehört auch auf den anderen — beide Branches. Die
@@ -74,7 +78,7 @@ Dateien auf `latest`:
 
 ```
 dbus-tsbb.py        der Treiber (VERSION-Konstante oben, muss zu `version` passen)
-version             z.B. v1.21
+version             z.B. v1.22
 changes             Changelog, neueste Version oben
 setup               SetupHelper-Hook
 find-port.sh        listet nur Kandidatenports, das Suchen macht der Treiber
@@ -83,6 +87,7 @@ extras/nodered-separate-temp-sensors.json
 tools/pre-commit    Wächter vor jedem Commit, siehe unten
 tools/pre-push      Wächter vor jedem Push, siehe unten
 tools/release-check die Prüfung, die beide benutzen
+tools/build-flow.py baut die Flow-JSON in extras/, siehe Node-RED
 tests/              Tests ohne Venus und ohne Hardware, siehe unten
 CLAUDE.md           diese Datei, liegt auf beiden Branches
 ReadMe.md           zweisprachig, Deutsch und Englisch
@@ -104,11 +109,12 @@ Protokoll: 9600 8N1, DTR+RTS gesetzt, keine Prüfsumme. Port über
 `/Settings/Devices/tsbuckboost/Port` und fragt, solange der existiert, nur ihn
 (vorher `stop-tty.sh`). Nur beim ersten Start, oder wenn er fehlt, fragt er alle
 Kandidaten — vorsichtig: Leitung vor der Frage still, kurze Antwort, zweimal
-dieselbe Kennung, nur Typen, die er dekodieren kann. Die Kennung ist ein Byte;
-dass der Wandler danach schweigt, sagt nur das aus TSConfig gelesene Protokoll,
-am Gerät ist es nicht gemessen. Bis zu drei Folgebytes gelten deshalb noch als
-Antwort und stehen im Log (`answers the type query with more than its id`); ein
-Gerät, das streamt, schickt mehr. Erst dann löst er den Port
+dieselbe Kennung, nur Typen, die er dekodieren kann. Die Kennung ist ein Byte,
+und danach schweigt der Wandler: am 19.09.2026 auf einstein gemessen, bei
+sieben Starts mit dem TS800C5, Firmware 28-03-25. Bis zu drei Folgebytes gelten
+trotzdem noch als Antwort und stehen im Log (`answers the type query with more
+than its id`), falls eine andere Firmware es anders hält; ein Gerät, das
+streamt, schickt mehr. Erst dann löst er den Port
 vom serial-starter; ein fremdes CP210x-Gerät behält seinen Service. Die
 vorgefundene Leitungseinstellung wird nach der Probe zurückgeschrieben. Ohne
 Wandler bleibt der Prozess und fragt nach 10 s bis 5 min erneut, ein neuer Port
@@ -124,6 +130,9 @@ kann (über 100 V oder 250 A), zählt wie ein Poll ohne Antwort. Bei
 Verbindungsverlust werden alle Messwerte und die Statuspfade ungültig gesetzt;
 Strom und Leistung gehen auf 0, der Temperaturalarm bleibt stehen. Vor jedem
 Ende wird der Energiezähler gesichert, auch bei SIGTERM von `svc -t`/`svc -d`.
+Dass SIGTERM ankommt und sauber beendet, ist am 19.09.2026 auf einstein
+gemessen; das Speichern selbst noch nicht. Der Zähler stand still, und
+unverändert wird er weder geschrieben noch geloggt.
 Beendet wird über `exit_process()` mit `os._exit`, das aus jedem Callback
 sicher beendet. Fehlen die Settings beim Start, ist das fatal; daemontools
 versucht es neu.
@@ -156,17 +165,23 @@ einen pro D-Bus-Verbindung. Jeder Zusatzservice braucht deshalb seine eigene
 private Verbindung (`private_bus()`). Das war der Bug bis v1.11.
 
 Seit v1.21 startet der Treiber sich selbst neu, wenn sich das Setting ändert —
-egal wer es schreibt, Flow oder Konsole. Die GUI muss weiterhin neu gezeichnet
-werden, sonst bleiben tote Einträge stehen: `svc -t /service/start-gui` (auf
-älterem Venus OS `/service/gui`). Die Instanzen der Zusatzgeräte stehen in
+egal wer es schreibt, Flow oder Konsole. Am 19.09.2026 auf einstein gemessen:
+jede Änderung genau ein Neustart, danach der richtige Stand, und die
+Geräteliste folgt von selbst. Unter Venus OS v3.80~36 kamen und gingen die
+Zusatzgeräte ohne Neustart der GUI. Bis v1.21 stand hier, die GUI müsse neu
+gezeichnet werden, sonst blieben tote Einträge stehen; ob das auf älterem Venus
+OS so war, ist nicht bekannt. Die Instanzen der Zusatzgeräte stehen in
 `/Settings/Devices/tsbuckboost_<key>/ClassAndVrmInstance`, vorbelegt 41–44.
 
 ### Node-RED
 
-Der Flow in `extras/` schreibt den Setting-Wert und startet die GUI neu; den
-Treiber startet das Setting selbst neu (ab v1.21). Die JSON wird nicht von Hand
-bearbeitet: Das Audit vom 18.09.2026 hat den Flow neu gebaut, die JS-Texte
-stammen aus einem Generator. Wer ihn ändert, prüft mit `tests/test_flow.py`.
+Der Flow in `extras/` schreibt nur den Setting-Wert; den Treiber startet das
+Setting selbst neu (ab v1.21), einen Neustart der GUI gibt es seit v1.22 nicht
+mehr. Die JSON wird nicht von Hand bearbeitet: Sie entsteht aus
+`tools/build-flow.py` (`python3 tools/build-flow.py`), und
+`test_the_file_is_what_the_generator_builds` prüft, dass beide übereinstimmen.
+Bis v1.22 lag der Generator nur im Arbeitsverzeichnis des Audits. Wer den Flow
+ändert, prüft mit `tests/test_flow.py`.
 
 Dinge, die Zeit gekostet haben und nicht wieder passieren sollen:
 
@@ -185,10 +200,12 @@ Dinge, die Zeit gekostet haben und nicht wieder passieren sollen:
 * Befehle laufen nacheinander. Zwei gegenläufige Tipps kurz hintereinander
   erzeugten bis v1.20 eine Endlosschleife aus Treiber- und GUI-Neustarts, weil
   jede Rückmeldung in den Schalter einen neuen Lauf auslöste.
-* `svc` endet auch bei einem Fehler mit 0 und meldet ihn nur auf stderr (laut
-  Quelltext von daemontools, am GX nicht gemessen). Der Flow wertet deshalb die
-  Ausgabe aus, nicht den Exit-Code. Ob Node-RED auf einstein als root läuft und
-  `svc` überhaupt darf, ist nicht gemessen.
+* Node-RED läuft auf einstein ohne root-Rechte. `svc` antwortete dem Flow
+  „svc: warning: unable to control /service/start-gui: access denied"
+  (gemessen am 19.09.2026). Den Fehler meldet `svc` nur auf stderr, der
+  Exit-Code ist laut daemontools-Quelltext trotzdem 0. Bis v1.21 startete der
+  Flow die GUI deshalb nie neu und meldete jedes Umschalten als gescheitert,
+  obwohl es geklappt hatte; seit v1.22 ruft er `svc` gar nicht mehr auf.
 
 Die Beschriftungen der Victron-Knoten kommen aus der festen Liste in
 `services.json` von `node-red-contrib-victron`. Ein Treiber kann sie nicht
@@ -284,8 +301,8 @@ einer Cloud-Sitzung kamen. Gewollte Änderungen an älteren Einträgen gehen mit
 `TSBB_SKIP_TESTS=1`. Gegen eine Versionsabweichung gibt es keinen Schalter.
 
 Gegengeprüft am 19.09.2026: Jede Regel und jeder Fix wurde in einer Kopie
-zurückgenommen, und der zugehörige Test wurde rot — 73 Mutationen (Hooks 13,
-Treiber 46, Flow 14), jeder Test von mindestens einer erfasst.
+zurückgenommen, und der zugehörige Test wurde rot — 74 Mutationen (Hooks 13,
+Treiber 46, Flow 15), jeder Test von mindestens einer erfasst.
 
 Hooks liegen nicht im Klon. Einmal installieren, als Links, damit Änderungen
 an `tools/` sofort gelten:
