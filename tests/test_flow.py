@@ -11,6 +11,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -167,6 +168,19 @@ class FlowFile(unittest.TestCase):
     def test_the_temperature_debug_node_is_off(self):
         self.assertFalse(self.by_id["tsbb_temp_debug"]["active"])
 
+    def test_the_file_is_what_the_generator_builds(self):
+        # The JSON is built by tools/build-flow.py and never edited by hand.
+        tmp = tempfile.mkdtemp(prefix="tsbb-flow-build-")
+        try:
+            built = os.path.join(tmp, "flow.json")
+            subprocess.run([sys.executable, os.path.join(ROOT, "tools", "build-flow.py"), built],
+                           check=True, stdout=subprocess.PIPE, timeout=30)
+            with open(built, "rb") as a, open(FLOW, "rb") as b:
+                self.assertTrue(a.read() == b.read(),
+                                "extras/ differs from tools/build-flow.py - run it")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 @unittest.skipIf(JSC is None, "no JavaScript engine (jsc) - flow logic not tested")
 class FlowLogic(unittest.TestCase):
@@ -296,24 +310,16 @@ class FlowCommands(unittest.TestCase):
         finally:
             s.close()
 
-    def test_switching_restarts_the_gui(self):
-        out, calls = self.run_case()
-        self.assertIn("switched", out)
-        self.assertIn("RESULT=1", out)
-        self.assertEqual(calls, ["start-gui"])
-
-    def test_a_refused_svc_is_a_failure(self):
-        # svc exits 0 and only complains on stderr
-        out, _calls = self.run_case(
+    def test_switching_writes_the_setting_and_restarts_nothing(self):
+        # Node-RED runs without root rights; on a Cerbo GX (19.09.2026) svc
+        # answered this for the GX display, and up to v1.21 every switch that
+        # had worked was reported as failed. The device list follows anyway.
+        out, calls = self.run_case(
             svc_error="svc: warning: unable to control /service/start-gui: access denied")
-        self.assertNotIn("switched", out)
-        self.assertIn("failed", out)
-        self.assertIn("access denied", out)
-
-    def test_older_venus_restarts_gui(self):
-        out, calls = self.run_case(services=("gui",))
         self.assertIn("switched", out)
-        self.assertEqual(calls, ["gui"])
+        self.assertNotIn("failed", out)
+        self.assertIn("RESULT=1", out)
+        self.assertEqual(calls, [])
 
     def test_the_same_value_does_nothing(self):
         out, calls = self.run_case(setting=1)

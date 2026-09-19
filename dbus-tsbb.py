@@ -53,7 +53,7 @@ except ImportError as _e:
     time.sleep(10)
     sys.exit(1)
 
-VERSION = "1.21"
+VERSION = "1.22"
 POLL_MS = 2000
 FALLBACK_INSTANCE = 40
 # After this many consecutive failed polls the process exits and daemontools
@@ -122,8 +122,8 @@ PORT_WATCH = 5
 # Off by default; switch on with
 #   dbus -y com.victronenergy.settings \
 #        /Settings/Devices/tsbuckboost/SeparateTempSensors SetValue 1
-# The driver restarts itself to apply it; then restart the GUI as well
-# (svc -t /service/start-gui), or the device list keeps dead entries.
+# The driver restarts itself to apply it. On Venus OS v3.80 the device list
+# follows by itself; an older GX may need svc -t /service/start-gui.
 TEMP_SENSORS = (("Board", "t_board", "Board", 41),
                 ("Mosfet1", "t_mosfet1", "MOSFET 1", 42),
                 ("Mosfet2", "t_mosfet2", "MOSFET 2", 43),

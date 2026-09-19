@@ -1,3 +1,14 @@
+v1.22 - the flow no longer restarts the GX display
+  flow: a switch only writes the setting. The driver restarts itself (since
+  v1.21), and the device list on the GX follows by itself - on a Cerbo GX with
+  Venus OS v3.80 the devices came and went without a restart of the GUI. The
+  restart of the GX display is gone: Node-RED runs without root rights, svc
+  answered "access denied", and the flow reported every switch as failed
+  although it had worked.
+  flow: the JSON is built by tools/build-flow.py, and a test checks that the
+  two agree
+  docs: no GUI restart after changing SeparateTempSensors from the console
+
 v1.21 - results of a full audit: read-only guard, careful probing, energy counter
   driver: every byte for the converter goes through one function that lets only
   FE 11, FE D0 and FE CF pass and sends nothing at all once another process has

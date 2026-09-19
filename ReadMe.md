@@ -210,17 +210,17 @@ This is **off by default**, because it adds entries to the device list.
 # on
 dbus -y com.victronenergy.settings \
      /Settings/Devices/tsbuckboost/SeparateTempSensors SetValue 1
-svc -t /service/start-gui
 
 # off
 dbus -y com.victronenergy.settings \
      /Settings/Devices/tsbuckboost/SeparateTempSensors SetValue 0
-svc -t /service/start-gui
 ```
 
-The driver restarts itself when the setting changes (v1.21 and later). The GUI has to
-be restarted as well, or the device list keeps entries of devices that went away; on
-older Venus OS releases the GUI service is `/service/gui`.
+The driver restarts itself when the setting changes (v1.21 and later), and the device
+list follows by itself: on a Cerbo GX with Venus OS v3.80 the devices came and went
+without a restart of the GUI. Should an older GX keep showing a device that went away,
+restart the GUI once with `svc -t /service/start-gui` (`/service/gui` on older
+releases).
 
 You then get *Buck-Boost Board*, *Buck-Boost MOSFET 1* and *Buck-Boost MOSFET 2*,
 plus *Buck-Boost CAN sensor* as soon as a TS Temp sensor answers — the driver skips
@@ -234,10 +234,9 @@ updates. Editing the driver file instead would not: the next install replaces it
 **Without the console.** `extras/nodered-separate-temp-sensors.json` is a small
 Node-RED flow that does the same thing: import it through the Node-RED menu
 (*Import → clipboard*), then click *manual ON* or *manual OFF*. The `exec` node writes
-the setting on the GX device; the driver restarts itself, and the flow restarts the
-GX user interface so that the device list is redrawn — the display goes black for a
-few seconds, nothing else on the system is affected. The debug node reports back
-whether it worked, with the value of the setting as read back.
+the setting on the GX device and the driver restarts itself; nothing else is
+restarted. The debug node reports back whether it worked, with the value of the
+setting as read back.
 
 The flow reads the setting before writing and only acts on a real change. One
 command runs at a time; a tap while one is running only replaces the pending wish,
@@ -265,16 +264,16 @@ who never opens a console. The trigger is kept separate from the action, so anyt
 else can drive it too: the two inject nodes, a dashboard switch, or your own logic.
 The action understands `1`/`0`, `true`/`false`, `on`/`off` — as numbers, booleans or
 strings in any case. Anything else is ignored with a warning rather than guessed,
-because a guess would restart the driver and the display. The setting as read back is
+because a guess would restart the driver for nothing. The setting as read back is
 fed into the virtual switch, so its position on the GX display matches the setting —
 after the inject nodes at once, after a change from the console within ten minutes.
 
 Requirements for the flow: the TsBuckBoost driver v1.21 or later (it restarts itself
 when the setting changes), the Victron Node-RED nodes (for the virtual switch and the
 four input nodes) and a Node-RED instance allowed to run commands on the GX device.
-The GUI restart uses `start-gui`, or `gui` on older Venus OS releases. If it fails —
-because Node-RED may not control services, for instance — the debug node says so;
-the setting is written and the driver restarted all the same.
+Up to v1.21 the flow restarted the GUI as well. Node-RED runs without root rights on
+current Venus OS, `svc` answered *access denied*, and the debug node reported every
+switch as failed although it had worked. Since v1.22 the flow restarts nothing.
 
 ### Serial starter
 
@@ -674,17 +673,17 @@ Alarmschwellen. Standardmäßig ist das **aus**, weil es die Geräteliste verlä
 # ein
 dbus -y com.victronenergy.settings \
      /Settings/Devices/tsbuckboost/SeparateTempSensors SetValue 1
-svc -t /service/start-gui
 
 # aus
 dbus -y com.victronenergy.settings \
      /Settings/Devices/tsbuckboost/SeparateTempSensors SetValue 0
-svc -t /service/start-gui
 ```
 
-Der Treiber startet sich selbst neu, wenn sich die Einstellung ändert (ab v1.21). Die
-GUI muss zusätzlich neu starten, sonst behält die Geräteliste die Einträge
-verschwundener Geräte; auf älteren Venus-Versionen heißt ihr Dienst `/service/gui`.
+Der Treiber startet sich selbst neu, wenn sich die Einstellung ändert (ab v1.21), und
+die Geräteliste folgt von selbst: Auf einem Cerbo GX mit Venus OS v3.80 kamen und
+gingen die Geräte ohne Neustart der GUI. Zeigt ein älteres GX ein verschwundenes Gerät
+weiter an, die GUI einmal mit `svc -t /service/start-gui` neu starten (auf älteren
+Versionen `/service/gui`).
 
 Dann erscheinen *Buck-Boost Board*, *Buck-Boost MOSFET 1* und *Buck-Boost MOSFET 2*,
 dazu *Buck-Boost CAN sensor*, sobald ein TS-Temp-Sensor antwortet — solange der
@@ -699,11 +698,9 @@ Installation ersetzt sie.
 **Ohne Konsole.** `extras/nodered-separate-temp-sensors.json` ist ein kleiner
 Node-RED-Flow, der dasselbe erledigt: über das Node-RED-Menü importieren
 (*Import → Zwischenablage*), dann auf *manual ON* oder *manual OFF* klicken. Der
-`exec`-Node schreibt die Einstellung auf dem GX-Gerät; der Treiber startet sich selbst
-neu, und der Flow startet die GX-Oberfläche neu, damit die Geräteliste neu gezeichnet
-wird — das Display ist dabei ein paar Sekunden schwarz, der Rest des Systems läuft
-ungestört weiter. Der Debug-Node meldet zurück, ob es geklappt hat, mit dem
-zurückgelesenen Wert der Einstellung.
+`exec`-Node schreibt die Einstellung auf dem GX-Gerät, und der Treiber startet sich
+selbst neu; sonst wird nichts neu gestartet. Der Debug-Node meldet zurück, ob es
+geklappt hat, mit dem zurückgelesenen Wert der Einstellung.
 
 Der Flow liest die Einstellung vor dem Schreiben und wird nur bei einer echten
 Änderung aktiv. Es läuft immer nur ein Befehl; ein Tipp während eines laufenden
@@ -732,8 +729,8 @@ eigentlich da: für alle, die keine Konsole öffnen wollen. Auslöser und Aktion
 bewusst getrennt, damit auch anderes davorhängen kann: die beiden Inject-Nodes, ein
 Dashboard-Element oder eigene Logik. Die Aktion versteht `1`/`0`, `true`/`false` und
 `on`/`off` — als Zahl, Boolean oder Zeichenkette in beliebiger Schreibweise. Alles
-andere wird mit einer Warnung ignoriert statt geraten, denn ein Ratefehler würde
-Treiber und Display neu starten. Die zurückgelesene Einstellung wird in den virtuellen
+andere wird mit einer Warnung ignoriert statt geraten, denn ein Ratefehler würde den
+Treiber grundlos neu starten. Die zurückgelesene Einstellung wird in den virtuellen
 Schalter gespielt, damit seine Stellung auf dem GX-Display der Einstellung entspricht —
 nach den Inject-Nodes sofort, nach einer Änderung über die Konsole binnen zehn
 Minuten.
@@ -741,10 +738,10 @@ Minuten.
 Voraussetzungen für den Flow: der TsBuckBoost-Treiber ab v1.21 (er startet sich bei
 einer Änderung der Einstellung selbst neu), die Victron-Nodes für Node-RED (für den
 virtuellen Schalter und die vier Eingangs-Nodes) und eine Node-RED-Instanz, die Befehle
-auf dem GX-Gerät ausführen darf. Der GUI-Neustart nimmt `start-gui`, auf älteren
-Venus-Versionen `gui`. Scheitert er — etwa weil Node-RED keine Dienste steuern darf —,
-meldet der Debug-Node das; die Einstellung ist trotzdem geschrieben und der Treiber
-neu gestartet.
+auf dem GX-Gerät ausführen darf. Bis v1.21 startete der Flow auch die GUI neu. Node-RED
+läuft auf aktuellem Venus OS ohne root-Rechte, `svc` antwortete *access denied*, und
+der Debug-Node meldete jedes Umschalten als gescheitert, obwohl es geklappt hatte. Seit
+v1.22 startet der Flow nichts mehr neu.
 
 Beschriftungen und Meldungen im Flow sind bewusst englisch, passend zum Rest des
 Pakets und zur Venus-Oberfläche.
