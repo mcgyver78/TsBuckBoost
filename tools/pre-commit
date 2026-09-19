@@ -30,7 +30,7 @@ sh tools/release-check HEAD --index || {
 
 [ "${TSBB_SKIP_TESTS:-}" = "1" ] && exit 0
 [ -d tests ] || exit 0
-git diff --cached --name-only | grep -Eq '^(dbus-tsbb\.py|tools/|tests/|extras/)' || exit 0
+git diff --cached --name-only | grep -Eq '^(dbus-tsbb\.py|setup$|tools/|tests/|extras/)' || exit 0
 
 if ! command -v python3 >/dev/null 2>&1; then
     echo "pre-commit: python3 not found, tests not run." >&2

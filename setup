@@ -10,12 +10,46 @@
 # Only read commands are ever sent to the converter.
 #
 # The driver lives in this package directory and is started by the service in
-# services/TsBuckBoost - no Venus OS files are replaced.
+# services/TsBuckBoost - no Venus OS files are replaced. The one file outside
+# the package is the udev rule that keeps serial-starter away from the
+# converter's USB adapter: the driver writes it (see dbus-tsbb.py), this
+# script restores it after a firmware update and removes it on uninstall.
+#
+# The TSBB_* variables exist for tests/test_setup.py only.
 
-# CommonResources prompts for install/uninstall, performs it and does not
-# return here.
-standardPromptAndActions='yes'
-
-#### following line incorporates helper resources into this script
-source "/data/SetupHelper/HelperResources/IncludeHelpers"
+#### following lines incorporate helper resources into this script
+helpers="${TSBB_SETUP_HELPERS:-/data/SetupHelper/HelperResources/IncludeHelpers}"
+source "$helpers"
 #### end of lines to include helper resources
+
+udevStore="${TSBB_UDEV_STORE:-/data/conf/tsbuckboost-udev.rules}"
+udevRule="${TSBB_UDEV_RULE:-/etc/udev/rules.d/99-tsbuckboost.rules}"
+
+if [ "$scriptAction" = 'NONE' ]; then
+    standardActionPrompt
+fi
+
+if [ "$scriptAction" = 'INSTALL' ]; then
+    # A firmware update brings a new /etc; /data/conf keeps the driver's copy.
+    if [ -f "$udevStore" ]; then
+        cp "$udevStore" "$udevRule"
+        udevadm control --reload 2>/dev/null
+        logMessage "serial-starter exception for the converter's adapter restored"
+    fi
+    installService "$packageName"
+fi
+
+if [ "$scriptAction" = 'UNINSTALL' ]; then
+    removeService "$packageName"
+    # The rule belongs to the package, not to the device. Left behind, it
+    # would keep serial-starter away from an adapter that may serve another
+    # device by then, and nobody looks for the reason in a file of a package
+    # that is gone.
+    if [ -f "$udevRule" ] || [ -f "$udevStore" ]; then
+        rm -f "$udevRule" "$udevStore"
+        udevadm control --reload 2>/dev/null
+        logMessage "serial-starter exception for the converter's adapter removed"
+    fi
+fi
+
+endScript

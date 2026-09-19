@@ -1,3 +1,14 @@
+v1.23 - serial-starter leaves the converter's adapter alone
+  driver: once it has recognised the converter, it writes a udev rule with
+  VE_SERVICE=ignore for that USB adapter, keyed on its serial number. Until
+  the driver had released its port, serial-starter's probe drivers could write
+  their own bytes into the converter, and at boot that was a race. The rule
+  takes effect the next time the adapter is added. An adapter with a serial
+  shorter than eight characters gets none: older CP2102 all report 0001.
+  setup: restores the rule from /data/conf after a firmware update and removes
+  it on uninstall; setup no longer leaves the actions to SetupHelper
+  tools: a change to setup runs the tests as well
+
 v1.22 - the flow no longer restarts the GX display
   flow: a switch only writes the setting. The driver restarts itself (since
   v1.21), and the device list on the GX follows by itself - on a Cerbo GX with

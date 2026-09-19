@@ -186,6 +186,16 @@ class PreCommitTests(unittest.TestCase):
     def test_passing_test_lets_the_commit_through(self):
         self.assertEqual(self.run_with_test("pass").returncode, 0)
 
+    def test_a_change_to_setup_runs_the_tests(self):
+        # the failing test is committed first, so that setup is the only
+        # staged path that can start the tests
+        self.repo.stage({"tests/test_probe.py":
+                         "import unittest\n\nclass T(unittest.TestCase):\n"
+                         "    def test_it(self):\n        self.fail('red')\n"})
+        self.repo.git("commit", "-q", "--no-verify", "-m", "a red test")
+        self.repo.stage({"setup": "#!/bin/bash\n# changed\n"})
+        self.assertEqual(self.repo.pre_commit(TSBB_SKIP_TESTS="").returncode, 1)
+
     def test_tests_run_without_the_variables_git_gives_its_hooks(self):
         self.repo.write("tests/test_probe.py",
                         "import os, unittest\n\nclass T(unittest.TestCase):\n"

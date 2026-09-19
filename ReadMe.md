@@ -309,6 +309,25 @@ port is taken back from serial-starter once: another driver looking for its own
 hardware may have handed it back at any moment, and one call is cheaper than the
 service restart that follows five failed polls.
 
+Until the driver has released its port, serial-starter's probe drivers may write
+their own bytes into the converter — at boot it is a race, and the converter also
+accepts write commands. So once the driver has recognised the converter, it writes a
+udev rule that tells serial-starter to leave that one USB adapter alone, keyed on
+the adapter's serial number:
+
+```
+/etc/udev/rules.d/99-tsbuckboost.rules
+ACTION=="add", SUBSYSTEM=="tty", ENV{ID_SERIAL_SHORT}=="<serial>", ENV{VE_SERVICE}="ignore"
+```
+
+It takes effect the next time the adapter is added, at the next boot or plug-in. A
+firmware update replaces `/etc`; `setup` then restores the rule from the driver's copy
+in `/data/conf/tsbuckboost-udev.rules`, and uninstalling the package removes both.
+An adapter whose serial is shorter than eight characters gets no rule: older CP2102
+all report `0001`, and a rule for that would hide every such adapter from
+serial-starter. The log says so; the driver then keeps releasing its port at every
+start, as before.
+
 ### Protocol
 
 Reconstructed from TSConfig v2.4.4 (VB.NET, not obfuscated). 9600 8N1, DTR and RTS
@@ -781,6 +800,25 @@ startet neu, was den Port frisch öffnet. Nach zwei Abfragen ohne Antwort holt e
 Port einmal zurück: Ein anderer Treiber auf der Suche nach seiner eigenen Hardware
 kann ihn jederzeit an den serial-starter zurückgegeben haben, und ein Aufruf ist
 billiger als der Dienstneustart nach fünf Fehlversuchen.
+
+Bis der Treiber seinen Port freigegeben hat, können die Probe-Treiber des
+serial-starter eigene Bytes in den Wandler schreiben — beim Hochfahren ist das ein
+Wettlauf, und der Wandler nimmt auch Schreibbefehle an. Hat der Treiber den Wandler
+erkannt, legt er deshalb eine udev-Regel an, die dem serial-starter sagt, genau
+diesen USB-Adapter in Ruhe zu lassen, erkannt an seiner Seriennummer:
+
+```
+/etc/udev/rules.d/99-tsbuckboost.rules
+ACTION=="add", SUBSYSTEM=="tty", ENV{ID_SERIAL_SHORT}=="<Seriennummer>", ENV{VE_SERVICE}="ignore"
+```
+
+Sie wirkt, sobald der Adapter das nächste Mal angemeldet wird, also beim nächsten
+Hochfahren oder Einstecken. Ein Firmware-Update ersetzt `/etc`; `setup` holt die Regel
+dann aus der Kopie des Treibers in `/data/conf/tsbuckboost-udev.rules` zurück, und das
+Deinstallieren des Pakets entfernt beide. Ein Adapter mit einer Seriennummer unter
+acht Zeichen bekommt keine Regel: Ältere CP2102 melden alle `0001`, und eine Regel
+dafür würde jeden solchen Adapter vor dem serial-starter verstecken. Das Log sagt
+das; der Treiber gibt seinen Port dann wie bisher bei jedem Start frei.
 
 ### Protokoll
 

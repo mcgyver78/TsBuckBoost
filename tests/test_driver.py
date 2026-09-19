@@ -156,6 +156,7 @@ class World(object):
         self.services = []
         self.fail_service = None
         self.stop_tty_rc = 0
+        self.adapter_serials = {}     # realpath of the port -> ID_SERIAL_SHORT
         self.apply_termios = False
         self.idle = []
         self.signals = {}
@@ -373,18 +374,34 @@ def load_driver(world, tmp):
         raise Exited(code)
 
     def fake_call(args, timeout=None):
+        if args[0] == "udevadm":
+            world.events.append(("udevadm", " ".join(args[1:])))
+            return 0
         world.events.append(("stop-tty", args[1]))
         return world.stop_tty_rc
+
+    def fake_check_output(args, stderr=None, timeout=None, universal_newlines=False):
+        # udevadm info -q property -n <tty>
+        serial = world.adapter_serials.get(os.path.realpath(args[-1]))
+        if serial is None:
+            raise OSError("udevadm: device node not found")
+        return "DEVNAME=%s\nID_SERIAL_SHORT=%s\n" % (args[-1], serial)
 
     stop_tty = os.path.join(tmp, "stop-tty.sh")
     open(stop_tty, "w").close()
     mod.time = types.SimpleNamespace(sleep=world.sleep, monotonic=world.monotonic,
                                      time=world.monotonic, strftime=lambda fmt: "00:00:00")
-    mod.subprocess = types.SimpleNamespace(call=fake_call)
+    mod.subprocess = types.SimpleNamespace(call=fake_call, check_output=fake_check_output,
+                                           DEVNULL=None)
     mod.exit_process = exit_process
     mod.log = world.logs.append
     mod.STOP_TTY = stop_tty
     mod.STATE_DIR = os.path.join(tmp, "run")
+    # never the real /etc and /data of the machine running the tests
+    os.makedirs(os.path.join(tmp, "rules.d"))
+    os.makedirs(os.path.join(tmp, "conf"))
+    mod.UDEV_RULE = os.path.join(tmp, "rules.d", "99-tsbuckboost.rules")
+    mod.UDEV_STORE = os.path.join(tmp, "conf", "tsbuckboost-udev.rules")
     mod.candidate_ports = lambda: sorted(world.present)
     return mod, bus_class
 
@@ -822,6 +839,60 @@ class StopTty(DriverTest):
         self.assertFalse(self.mod.release_from_serial_starter(port))
         self.assertTrue(self.logged("failed with exit code 1"))
         self.assertFalse(self.logged("released"))
+
+
+class SerialStarterException(DriverTest):
+    """The udev rule that keeps serial-starter away from the converter's
+    adapter (audit finding 4)."""
+
+    SERIAL = "d437624d05c4ec11a9c6a4f2d297222e"     # the CP2102N on einstein
+
+    def converter_port(self, serial=SERIAL):
+        port = self.add_port("A", FakeConverter())
+        if serial is not None:
+            self.world.adapter_serials[os.path.realpath(port)] = serial
+        return port
+
+    def rule(self, path):
+        try:
+            with open(path) as f:
+                return f.read()
+        except OSError:
+            return None
+
+    def reloads(self):
+        return [e for e in self.world.events if e == ("udevadm", "control --reload")]
+
+    def test_the_converters_adapter_gets_a_rule(self):
+        self.driver(self.converter_port())
+        line = ('ENV{ID_SERIAL_SHORT}=="%s", ENV{VE_SERVICE}="ignore"' % self.SERIAL)
+        self.assertIn(line, self.rule(self.mod.UDEV_RULE))
+        self.assertEqual(self.rule(self.mod.UDEV_STORE), self.rule(self.mod.UDEV_RULE))
+        self.assertEqual(len(self.reloads()), 1)
+
+    def test_an_unchanged_rule_is_left_alone(self):
+        port = self.converter_port()
+        self.driver(port)
+        self.driver(port)
+        self.assertEqual(len(self.reloads()), 1)
+
+    def test_a_serial_that_is_not_unique_gets_no_rule(self):
+        # older CP2102 all report 0001: a rule would hide every one of them
+        self.driver(self.converter_port("0001"))
+        self.assertIsNone(self.rule(self.mod.UDEV_RULE))
+        self.assertTrue(self.logged("is not unique"))
+
+    def test_an_explicit_port_gets_no_rule(self):
+        self.driver(self.converter_port(), explicit=True)
+        self.assertIsNone(self.rule(self.mod.UDEV_RULE))
+        self.assertIsNone(self.rule(self.mod.UDEV_STORE))
+
+    def test_a_rule_that_cannot_be_written_does_not_stop_the_driver(self):
+        self.mod.UDEV_RULE = os.path.join(self.tmp, "missing", "99-tsbuckboost.rules")
+        drv = self.driver(self.converter_port())
+        self.assertTrue(self.logged("serial-starter exception not written"))
+        self.poll(drv)
+        self.assertEqual(drv.svc["/Connected"], 1)
 
 
 if __name__ == "__main__":

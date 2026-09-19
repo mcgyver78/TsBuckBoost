@@ -16,7 +16,8 @@ Called without an argument, the driver asks the port it confirmed as the
 converter last time (kept in the settings), and only that port while it
 exists. On the first start, or when that port is gone, every CP210x port
 under /dev/serial/by-id/ is probed with the type query; only the port that
-answers is taken away from serial-starter.
+answers is taken away from serial-starter, and from the next boot on a udev
+rule keeps serial-starter away from that adapter altogether.
 """
 import fcntl
 import glob
@@ -53,7 +54,7 @@ except ImportError as _e:
     time.sleep(10)
     sys.exit(1)
 
-VERSION = "1.22"
+VERSION = "1.23"
 POLL_MS = 2000
 FALLBACK_INSTANCE = 40
 # After this many consecutive failed polls the process exits and daemontools
@@ -68,6 +69,19 @@ STOP_TTY = "/opt/victronenergy/serial-starter/stop-tty.sh"
 # port with Venus probe services, the heater answered 2 of 30 queries instead
 # of 29 of 29.
 SERIAL_STARTER_DIR = "/dev/serial-starter"
+# serial-starter tries every new USB serial port with foreign drivers
+# (VE.Direct, MK2, GPS, ...), and until this driver has released the
+# converter's port, their bytes reach the converter - which also accepts
+# write commands. A udev rule with VE_SERVICE=ignore keeps serial-starter
+# away from the converter's USB adapter for good. The driver writes it once
+# it knows the adapter; it takes effect when the adapter is next added
+# (plug-in or boot). /etc does not survive a firmware update, /data does:
+# setup copies the rule back from UDEV_STORE, and removes both on uninstall.
+UDEV_RULE = "/etc/udev/rules.d/99-tsbuckboost.rules"
+UDEV_STORE = "/data/conf/tsbuckboost-udev.rules"
+# Shorter adapter serials are not unique - older CP2102 all report 0001 - and
+# a rule for one of them would hide every such adapter from serial-starter.
+MIN_ADAPTER_SERIAL = 8
 # systemcalc sums /Dc/Alternator/Power over com.victronenergy.alternator only —
 # com.victronenergy.dcdc never reaches the overview page. Victron files DC-DC
 # converters under alternator as well ("This also includes other DC/DC
@@ -430,6 +444,68 @@ def release_from_serial_starter(port, timeout=15, settle=1.0, quiet=False):
     if settle:
         time.sleep(settle)
     return True
+
+
+def adapter_serial(port):
+    """ID_SERIAL_SHORT of the USB adapter behind a port, as udev knows it;
+    None if udev does not say."""
+    try:
+        out = subprocess.check_output(
+            ["udevadm", "info", "-q", "property", "-n", os.path.realpath(port)],
+            stderr=subprocess.DEVNULL, timeout=10, universal_newlines=True)
+    except Exception:
+        return None
+    for line in out.splitlines():
+        if line.startswith("ID_SERIAL_SHORT="):
+            return line.split("=", 1)[1].strip() or None
+    return None
+
+
+def udev_rule(serial):
+    return ("# TsBuckBoost: serial-starter leaves the converter's USB adapter alone.\n"
+            "# Written by the driver, restored by setup after a firmware update.\n"
+            'ACTION=="add", SUBSYSTEM=="tty", ENV{ID_SERIAL_SHORT}=="%s", '
+            'ENV{VE_SERVICE}="ignore"\n' % serial)
+
+
+def keep_serial_starter_away(port):
+    """Write the udev rule for the converter's adapter, unless it is there.
+
+    Never fatal: without the rule the driver still releases its port at every
+    start, as before. Only the adapter that answered as the converter gets a
+    rule; a new adapter replaces the old one in it."""
+    serial = adapter_serial(port)
+    if serial is None:
+        log("no serial-starter exception: udev does not know the adapter's serial")
+        return
+    if len(serial) < MIN_ADAPTER_SERIAL:
+        log("no serial-starter exception: adapter serial %s is not unique" % serial)
+        return
+    text = udev_rule(serial)
+    written = []
+    for path in (UDEV_STORE, UDEV_RULE):
+        try:
+            with open(path) as f:
+                if f.read() == text:
+                    continue
+        except (OSError, UnicodeDecodeError):
+            pass
+        try:
+            with open(path + ".new", "w") as f:
+                f.write(text)
+            os.rename(path + ".new", path)
+        except OSError as e:
+            log("serial-starter exception not written to %s: %s" % (path, e))
+            return
+        written.append(path)
+    if written:
+        try:
+            subprocess.call(["udevadm", "control", "--reload"], timeout=10)
+        except Exception as e:
+            log("udev rules not reloaded: %s" % e)
+        log("serial-starter exception for adapter %s written to %s - it takes "
+            "effect when the adapter is next added (plug-in or boot)"
+            % (serial, " and ".join(written)))
 
 
 def port_open_elsewhere(tty):
@@ -868,6 +944,7 @@ class Driver(object):
         self.conv = Converter(port)
         if not explicit:
             self._remember_port()
+            keep_serial_starter_away(port)
         instance = device_instance(settings)
         energy = stored_energy(settings)
         self.energy_known = energy is not None
