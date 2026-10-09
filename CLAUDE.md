@@ -170,6 +170,34 @@ und die Geräteseite am GX hat keine Temperatur mehr. Die Zusatzgeräte tragen
 `/TemperatureType 2`; systemcalc nimmt nur Typ 0. Beides prüft
 `test_nothing_is_offered_as_battery_temperature`.
 
+### Der 100-A-TS1600 (Firmware 25-06-19)
+
+Bis v1.24 zeigte der Treiber an diesem Gerät +45 % (8 A), +47 % (18 A) und
++12 % (35 A) zu viel Strom. Gemessen am 09.10.2026 auf einstein gegen den
+SmartShunt, Wandler Kennung 85:
+
+* Die Faktorbytes (`FE 11 1F E0`) und das Chip-Byte (`1F F5`) lesen `ff`, nie
+  beschrieben. Der Treiber hatte daraus 0,255 A je Zählschritt gemacht.
+* Der Live-Block hat vier Kanalwörter (Byte 0–7), nicht drei. Ein Kanal, der
+  nicht arbeitet, liest 5, die arbeitenden um 185: Der Wandler schaltet Kanäle
+  zu, einer bei 8 A, zwei bei 18 A, vier bei 35 A, je rund 9 A. Die Nullpunkte
+  133/131/131/134 auf der Kalibrierseite (Byte 41–44) stimmen.
+* Faktor 0,1726 A je Zählschritt, auf drei Punkten gefunden: 8,3 / 18,6 /
+  35,5 A am Shunt gegen 8,1 / 18,6 / 35,6 A vom Treiber. Ein Gerät, etwa 2 %.
+  Ob TSConfig denselben Wert benutzt, ist nicht bekannt.
+* Seit v1.25 liest der Treiber genau diese Kombination so (`EMPIRICAL`). Jedes
+  andere Gerät mit `ff`-Faktoren bekommt keinen Strom, in Ruhe 0.
+
+Wie gemessen wurde, weil es sich zu wiederholen lohnt: Wandler aus, Shunt und
+Solar lesen (Grundlast, am 09.10. 0,7 A); Wandler auf 8, 18 und 35 A in TSConfig
+programmiert; Wandlerstrom = Shunt + Grundlast − Mehr-Solar. Der Kühlschrank
+schaltet sich unbemerkt zu (rund 2,4 A) und muss vorher aus sein; ein Sprung im
+Shunt verrät ihn. `/Dc/System/Power` taugt nicht als Referenz: Venus rechnet
+sie aus dem `/Dc/Alternator/Power` des Treibers (`dbus_systemcalc.py:895` auf
+einstein). Die Rohbytes liefert `touch /data/conf/tsbuckboost-rawlog` (v1.24),
+danach die Datei wieder löschen. Mein erster Schluss, die vier Wörter seien keine
+Ströme, war falsch: Die 5 im Ruhezustand ist kein Nullpunkt.
+
 ### Zusätzliche Temperatursensoren
 
 Die Einzeltemperaturen liegen **immer** im eigenen Service des Treibers auf
