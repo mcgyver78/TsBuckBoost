@@ -54,7 +54,7 @@ except ImportError as _e:
     time.sleep(10)
     sys.exit(1)
 
-VERSION = "1.23"
+VERSION = "1.24"
 POLL_MS = 2000
 FALLBACK_INSTANCE = 40
 # After this many consecutive failed polls the process exits and daemontools
@@ -127,6 +127,13 @@ MAX_CURRENT = 250.0
 # polls - each unanswered question costs half a second.
 AUX_MISSES = 3
 AUX_RETRY_POLLS = 30
+# Diagnosis, off by default: while this file exists, the raw live block goes to
+# the log every RAW_LOG_INTERVAL seconds and at every change of the status
+# byte. For comparing the current with a shunt when the decoded numbers cannot
+# say which factor or zero point is wrong. Four 25 kB log files hold about
+# three hours of it, so it is not left on.
+RAW_LOG_FLAG = "/data/conf/tsbuckboost-rawlog"
+RAW_LOG_INTERVAL = 10
 # Pauses between searches while no converter answers: quick at first (a
 # converter still powering up), then longer, so that foreign CP210x devices
 # are not asked every few seconds for hours. A new port ends the wait.
@@ -756,6 +763,10 @@ class Converter(object):
         log("found %s (id %d, internally %s), firmware %s, %s, factors %s, zero points %s"
             % (self.name, self.device_id, self.ctype, self.firmware or "?",
                "INA238" if self.ina == 2 else "INA226", self.sf, self.offsets))
+        # The numbers above are already converted. The bytes they came from are
+        # what is needed when the current does not match a shunt.
+        log("raw calibration bytes: chip %s, E0 %s, 2A %s, firmware %s"
+            % (ina.hex(), e0.hex(), cal.hex(), fw.hex()))
 
     def _channel_current(self, b, k):
         raw = b[2 * k] * 256 + b[2 * k + 1]
@@ -796,6 +807,7 @@ class Converter(object):
                 "active": active,
                 "blocked": blocked,
                 "status": status,
+                "raw": b.hex(),
                 # Labels as in TSConfig: byte 19 "Temperature board",
                 # bytes 18 and 20 "Temperature mosfet", aux block CAN sensor
                 "t_board": signed(b[19]),
@@ -959,6 +971,7 @@ class Driver(object):
         self.alarm_streak = 0
         self.read_errors = 0
         self.polls = 0
+        self.last_raw = None
         self.aux_misses = 0
         self.septemp = self._separate_sensors()
         svcname = "com.victronenergy.%s.tsbb_%s" % (
@@ -1304,10 +1317,21 @@ class Driver(object):
         s["/State"] = 3 if d["active"] else 0
         s["/Mode"] = 4 if d["blocked"] else 1
         s["/DeviceOffReason"] = OFF_REASON_REMOTE_CONNECTOR if d["blocked"] else 0
+        self._log_raw(d, d["status"] != self.last_status)
         if d["status"] != self.last_status:
             log("status 0x%02X: %s" % (d["status"], describe(d["status"])))
             self.last_status = d["status"]
         return True
+
+    def _log_raw(self, d, status_changed):
+        if not os.path.exists(RAW_LOG_FLAG):
+            return
+        now = time.monotonic()
+        if (not status_changed and self.last_raw is not None
+                and now - self.last_raw < RAW_LOG_INTERVAL):
+            return
+        self.last_raw = now
+        log("raw block %s" % d["raw"])
 
     def _count_energy(self, d):
         now = time.monotonic()

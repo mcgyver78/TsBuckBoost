@@ -402,6 +402,7 @@ def load_driver(world, tmp):
     os.makedirs(os.path.join(tmp, "conf"))
     mod.UDEV_RULE = os.path.join(tmp, "rules.d", "99-tsbuckboost.rules")
     mod.UDEV_STORE = os.path.join(tmp, "conf", "tsbuckboost-udev.rules")
+    mod.RAW_LOG_FLAG = os.path.join(tmp, "conf", "tsbuckboost-rawlog")
     mod.candidate_ports = lambda: sorted(world.present)
     return mod, bus_class
 
@@ -820,6 +821,49 @@ class Calibration(DriverTest):
         conv.cal_answers = {0x40: 40, 0x30: 0}
         with self.assertRaises(IOError):
             self.driver(self.add_port("A", conv))
+
+
+class RawLog(DriverTest):
+    def lines(self):
+        return [line for line in self.world.logs if line.startswith("raw block ")]
+
+    def flag(self):
+        open(self.mod.RAW_LOG_FLAG, "w").close()
+
+    def test_the_start_logs_the_bytes_the_calibration_came_from(self):
+        self.driver(self.add_port("A", FakeConverter()))
+        self.assertIn("raw calibration bytes: chip 02, E0 %s, 2A %s, firmware %s"
+                      % ((bytes([50, 50, 50]) + bytes(13)).hex(),
+                         (bytes(41) + bytes([10, 10, 10]) + bytes(20)).hex(),
+                         b"ts16v1.2".hex()), self.world.logs)
+
+    def test_no_raw_block_without_the_flag(self):
+        drv = self.driver(self.add_port("A", FakeConverter()))
+        self.poll(drv, 20)
+        self.assertEqual(self.lines(), [])
+
+    def test_with_the_flag_the_block_comes_every_ten_seconds(self):
+        self.flag()
+        drv = self.driver(self.add_port("A", FakeConverter()))
+        self.poll(drv, 11)                            # 22 s: at 2, 12 and 22
+        self.assertEqual(self.lines(), ["raw block " + live_block().hex()] * 3)
+
+    def test_a_new_status_is_logged_at_once(self):
+        self.flag()
+        conv = FakeConverter()
+        drv = self.driver(self.add_port("A", conv))
+        self.poll(drv)
+        conv.block = live_block(status=0x20)
+        self.poll(drv)                                # 2 s later, but a new status
+        self.assertEqual(self.lines(), ["raw block " + live_block().hex(),
+                                        "raw block " + live_block(status=0x20).hex()])
+
+    def test_the_flag_sends_nothing_to_the_converter(self):
+        self.flag()
+        drv = self.driver(self.add_port("A", FakeConverter()))
+        self.poll(drv, 3)
+        for _port, frame in self.world.frames:
+            self.assertIn(frame[1], (0x11, 0xD0, 0xCF))
 
 
 class Aux(DriverTest):

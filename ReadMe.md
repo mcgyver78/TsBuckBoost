@@ -460,6 +460,19 @@ collides with another device, change it there and restart the service. The separ
 temperature devices keep theirs in `/Settings/Devices/tsbuckboost_board/ClassAndVrmInstance`
 and its siblings.
 
+**The current does not match a shunt.** Since v1.24 the start-up logs the bytes the
+calibration was converted from (`raw calibration bytes`). To see the raw live block as
+well, create the flag file; the driver then writes one `raw block` line every 10 s and at
+every status change, and stops when the file is gone:
+
+```bash
+touch /data/conf/tsbuckboost-rawlog
+grep -h raw /var/log/TsBuckBoost/current | tai64nlocal
+rm /data/conf/tsbuckboost-rawlog
+```
+
+Do not leave it on: the four 25 kB log files hold about three hours of it.
+
 ### Fan mount
 
 A 3D-printable mount for an 80 mm fan on the Buck-Boost 50 A, as STEP and STL, lives on
@@ -955,6 +968,21 @@ Geräusch die zuverlässigste Anzeige dafür, wann der Wandler wirklich arbeitet
 Bei einer Kollision dort ändern und den Dienst neu starten. Die separaten
 Temperaturgeräte führen ihre in `/Settings/Devices/tsbuckboost_board/ClassAndVrmInstance`
 und den Geschwistern.
+
+**Der Strom passt nicht zum Shunt.** Seit v1.24 schreibt der Start die Bytes ins Log,
+aus denen die Kalibrierung umgerechnet wurde (`raw calibration bytes`). Den rohen
+Live-Block gibt es zusätzlich, solange die Markierungsdatei existiert: Der Treiber
+schreibt dann alle 10 s und bei jedem Statuswechsel eine Zeile `raw block` und hört
+auf, sobald die Datei weg ist:
+
+```bash
+touch /data/conf/tsbuckboost-rawlog
+grep -h raw /var/log/TsBuckBoost/current | tai64nlocal
+rm /data/conf/tsbuckboost-rawlog
+```
+
+Nicht dauerhaft eingeschaltet lassen: Die vier Logdateien zu je 25 kB fassen davon
+etwa drei Stunden.
 
 ### Lüfterhalterung
 

@@ -1,3 +1,12 @@
+v1.24 - diagnosis: the raw bytes behind the current
+  driver: the start-up now also logs the bytes the calibration was converted from
+  (raw calibration bytes: chip, E0, 2A, firmware). While the file
+  /data/conf/tsbuckboost-rawlog exists, the raw 22-byte live block goes to the log
+  every 10 s and at every change of the status byte (raw block ...). Without the
+  file nothing changes. Added because the TS1600 (100 A, firmware 25-06-19) read
+  4 A too high against a shunt at 35 A and 9 A too high at 18 A, which neither a
+  wrong factor nor a wrong zero point explains. No new commands to the converter.
+
 v1.23 - serial-starter leaves the converter's adapter alone
   driver: once it has recognised the converter, it writes a udev rule with
   VE_SERVICE=ignore for that USB adapter, keyed on its serial number. Until
