@@ -54,7 +54,7 @@ except ImportError as _e:
     time.sleep(10)
     sys.exit(1)
 
-VERSION = "1.24"
+VERSION = "1.25"
 POLL_MS = 2000
 FALLBACK_INSTANCE = 40
 # After this many consecutive failed polls the process exits and daemontools
@@ -134,6 +134,18 @@ AUX_RETRY_POLLS = 30
 # three hours of it, so it is not left on.
 RAW_LOG_FLAG = "/data/conf/tsbuckboost-rawlog"
 RAW_LOG_INTERVAL = 10
+# Units whose current factors were never written: FE 11 1F E0 answers ff, which
+# would read as 0.255 A per count. For a unit measured against a shunt there is
+# an entry (type, firmware) -> (channels, A per count); the zero points are
+# still the ones on the calibration page, bytes 41 on. Any other unit with ff
+# factors gets no current at all - a guess would show up on the GX as a number.
+# TS1600 with firmware 25-06-19, the 100 A generation: four channel words in
+# the live block instead of three, and, against a SmartShunt on 9 October 2026
+# with the other loads measured, 0.1726 A per count at 8, 18 and 35 A (0.176,
+# 0.1726 and 0.1724 one by one). One unit, about 2 % accurate.
+EMPIRICAL = {("TS1600", "25-06-19"): (4, 0.1726)}
+# The most channels any type publishes as /Current/ChannelN.
+MAX_CHANNELS = 4
 # Pauses between searches while no converter answers: quick at first (a
 # converter still powering up), then longer, so that foreign CP210x devices
 # are not asked every few seconds for hours. A new port ends the wait.
@@ -760,6 +772,22 @@ class Converter(object):
         if fw:
             text = "".join(chr(b) for b in fw if 32 <= b < 127).strip()
             self.firmware = text if len(text) >= 3 else fw.hex()
+
+        self.channels = 3
+        self.current_known = True
+        self.erased = e0[:3] == b"\xff\xff\xff"
+        if self.erased:
+            profile = EMPIRICAL.get((self.ctype, self.firmware))
+            if profile is None:
+                self.current_known = False
+            else:
+                self.channels = profile[0]
+                if len(cal) < 41 + self.channels:
+                    raise IOError("short answer to the calibration query (%d bytes)"
+                                  % len(cal))
+                self.sf = [profile[1]] * self.channels
+                self.offsets = list(cal[41:41 + self.channels])
+
         log("found %s (id %d, internally %s), firmware %s, %s, factors %s, zero points %s"
             % (self.name, self.device_id, self.ctype, self.firmware or "?",
                "INA238" if self.ina == 2 else "INA226", self.sf, self.offsets))
@@ -767,6 +795,14 @@ class Converter(object):
         # what is needed when the current does not match a shunt.
         log("raw calibration bytes: chip %s, E0 %s, 2A %s, firmware %s"
             % (ina.hex(), e0.hex(), cal.hex(), fw.hex()))
+        if self.erased and self.current_known:
+            log("factor bytes are erased (ff): using %.4f A per count and %d channels, "
+                "measured on one unit against a shunt - an empirical value"
+                % (self.sf[0], self.channels))
+        elif self.erased:
+            log("factor bytes are erased (ff) and %s with firmware %s has no measured "
+                "values: current and power are not published while it converts"
+                % (self.name, self.firmware or "?"))
 
     def _channel_current(self, b, k):
         raw = b[2 * k] * 256 + b[2 * k + 1]
@@ -788,21 +824,26 @@ class Converter(object):
         status = b[21]
         active = bool(status & 0x01)           # bit 0: converter is converting
         blocked = bool(status & 0x20)          # bit 5: disabled through pin 1
-        channels = [round(self._channel_current(b, k), 2) for k in range(3)]
-        # The total is the sum of the published channels, so that they add up.
-        current = round(sum(channels), 2) if active else 0.0
+        if self.current_known:
+            channels = [round(self._channel_current(b, k), 2) for k in range(self.channels)]
+            # The total is the sum of the published channels, so that they add up.
+            current = round(sum(channels), 2) if active else 0.0
+        else:
+            # At rest it is zero for certain; while converting nobody knows.
+            channels = None
+            current = None if active else 0.0
         v_raw = b[10] * 256 + b[11]
         v_out = v_raw * self.spfactor if self.ctype in SPFACTOR_VOUT \
             else v_raw / 1024.0 * 2.0 / VOUT_DIVIDER
         v_in = (b[12] * 256 + b[13]) / 1024.0 * 2.0 / self.vin_divider
-        problem = implausible(v_in, v_out, channels if active else ())
+        problem = implausible(v_in, v_out, channels if active and channels else ())
         if problem:
             log("implausible block, counted as no answer (%s): %s" % (problem, b.hex()))
             return None
         return {"v_in": round(v_in, 2),
                 "v_out": round(v_out, 2),
                 "current": current,
-                "power": round(v_out * current, 1),
+                "power": None if current is None else round(v_out * current, 1),
                 "channels": channels,
                 "active": active,
                 "blocked": blocked,
@@ -1012,6 +1053,7 @@ class Driver(object):
                   "/Temperature/Board", "/Temperature/Mosfet1",
                   "/Temperature/Mosfet2", "/Temperature/CanSensor",
                   "/Current/Channel1", "/Current/Channel2", "/Current/Channel3",
+                  "/Current/Channel4",
                   "/StatusByte", "/Status/Converting", "/Status/BlockedByPin1"):
             s.add_path(p, None)
         if deferred:
@@ -1209,6 +1251,7 @@ class Driver(object):
                   "/Temperature/Board", "/Temperature/Mosfet1",
                   "/Temperature/Mosfet2", "/Temperature/CanSensor",
                   "/Current/Channel1", "/Current/Channel2", "/Current/Channel3",
+                  "/Current/Channel4",
                   "/StatusByte", "/Status/Converting", "/Status/BlockedByPin1",
                   "/Mode", "/DeviceOffReason"):
             s[p] = None
@@ -1301,8 +1344,14 @@ class Driver(object):
         s["/Temperature/Mosfet1"] = d["t_mosfet1"]
         s["/Temperature/Mosfet2"] = d["t_mosfet2"]
         s["/Temperature/CanSensor"] = d["t_can"]
-        for k in range(3):
-            s["/Current/Channel%d" % (k + 1)] = d["channels"][k] if d["active"] else 0
+        for k in range(MAX_CHANNELS):
+            if k >= self.conv.channels:
+                value = None                    # this type has no such channel
+            elif not d["active"]:
+                value = 0
+            else:
+                value = d["channels"][k] if d["channels"] else None
+            s["/Current/Channel%d" % (k + 1)] = value
         self._count_energy(d)
 
         self.temp_alarm = self._alarm_level(hottest)
@@ -1335,7 +1384,8 @@ class Driver(object):
 
     def _count_energy(self, d):
         now = time.monotonic()
-        if self.energy_known and d["active"] and self.last_tick is not None:
+        if (self.energy_known and d["active"] and d["power"] is not None
+                and self.last_tick is not None):
             dt = now - self.last_tick
             if 0 < dt <= MAX_ENERGY_DT:
                 self.energy += d["power"] * dt / 3600000.0   # W * s -> kWh

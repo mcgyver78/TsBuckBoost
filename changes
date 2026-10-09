@@ -1,3 +1,19 @@
+v1.25 - the 100 A TS1600: four channels, and no current where nothing is known
+  driver: a TS1600 of the 100 A generation (firmware 25-06-19) was read wrongly.
+  Its factor bytes (FE 11 1F E0) are erased (ff), which read as 0.255 A per count,
+  and its live block carries four channel words, not three. Against a SmartShunt
+  on 9 October 2026, with the other loads measured, the driver showed +45 % at
+  8 A, +47 % at 18 A and +12 % at 35 A. This one combination of type and firmware
+  is now read with four channels and 0.1726 A per count, which agreed with the
+  shunt within 2 % at the three points; the zero points are those of the
+  calibration page. The factor is empirical (one unit); whether TSConfig uses
+  the same value is not known.
+  driver: any other unit whose factor bytes read ff gets no current and no power
+  while it converts (at rest: 0), and says so in the log. New path
+  /Current/Channel4, invalid on types with three channels.
+  driver: the energy counter skips a poll that has no power
+  docs: section on the 100 A TS1600 in both languages
+
 v1.24 - diagnosis: the raw bytes behind the current
   driver: the start-up now also logs the bytes the calibration was converted from
   (raw calibration bytes: chip, E0, 2A, firmware). While the file

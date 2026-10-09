@@ -30,7 +30,7 @@ series. Out of the box it can only be configured with the Windows tool *TSConfig
 | `/Temperature/Board` | Board temperature (byte 19) |
 | `/Temperature/Mosfet1`, `/Temperature/Mosfet2` | Both MOSFET temperatures (bytes 18, 20) |
 | `/Temperature/CanSensor` | CAN temperature sensor, invalid when no sensor is connected |
-| `/Current/Channel1…3` | The three current measuring channels, individually |
+| `/Current/Channel1…4` | The current measuring channels, individually (three on most types, four on the 100 A TS1600) |
 | `/StatusByte`, `/Status/Converting`, `/Status/BlockedByPin1` | Raw status byte and the two decoded bits |
 | `/State` | 3 = charging, 0 = off |
 | `/History/EnergyOut` | Energy delivered, kWh, kept across restarts |
@@ -344,7 +344,7 @@ Inside the live block, big endian:
 
 | Byte | Content |
 |---|---|
-| 0·1, 2·3, 4·5 | current channels 1–3, raw |
+| 0·1, 2·3, 4·5 | current channels 1–3, raw (6·7: channel 4 on the 100 A TS1600) |
 | 10·11 | output voltage, raw |
 | 12·13 | input voltage, raw |
 | 18, 20 | MOSFET temperatures, signed |
@@ -482,6 +482,26 @@ SetupHelper does not copy it onto every GX device. The converter derates on temp
 so a slow-running fan keeps the charge current up in a warm compartment, which is also
 what makes the temperature readings above worth watching. Not required for the driver.
 
+### TS1600, 100 A generation
+
+A TS1600 with firmware 25-06-19 (the 100 A unit) does not keep its calibration where
+the older types do: the factor bytes of `FE 11 1F E0` read `ff` (never written), and so
+does the chip byte of `FE 11 1F F5`. Its live block has four channel words (bytes 0–7)
+instead of three. A channel that is not working reads 5; the ones that carry current
+read around 185. The converter adds channels rather than raising the current per
+channel: one at 8 A, two at 18 A, all four at 35 A.
+
+The driver reads exactly this combination (type and firmware) with four channels and
+0.1726 A per count, and the zero points from the calibration page (bytes 41–44). The
+factor is empirical: one unit, measured against a SmartShunt on 9 October 2026 with
+the other loads measured separately — 8.3, 18.6 and 35.5 A at the shunt against 8.1,
+18.6 and 35.6 A from the driver, about 2 %. Whether TSConfig uses the same value, and
+where it takes its factor from, is not known. Any other unit whose factor bytes read
+`ff` gets no current and no power while it converts (at rest: 0) and says so in the
+log, instead of a number made up from 0.255. With a second unit, the `raw calibration
+bytes` line at start-up and the `raw block` lines (see Troubleshooting) are what is
+needed to check the factor.
+
 ### Verified against
 
 Buck-Boost 50 A (id 113 / TS800C5) in a 12 → 24 V installation, checked against a
@@ -519,7 +539,7 @@ konfigurieren.
 | `/Temperature/Board` | Platinentemperatur (Byte 19) |
 | `/Temperature/Mosfet1`, `/Temperature/Mosfet2` | beide MOSFET-Temperaturen (Byte 18, 20) |
 | `/Temperature/CanSensor` | CAN-Temperatursensor, ungültig wenn keiner angeschlossen ist |
-| `/Current/Channel1…3` | die drei Strommesskanäle einzeln |
+| `/Current/Channel1…4` | die Strommesskanäle einzeln (drei bei den meisten Typen, vier beim 100-A-TS1600) |
 | `/StatusByte`, `/Status/Converting`, `/Status/BlockedByPin1` | rohes Statusbyte und die beiden dekodierten Bits |
 | `/State` | 3 = lädt, 0 = aus |
 | `/History/EnergyOut` | gelieferte Energie in kWh, überlebt Neustarts |
@@ -849,7 +869,7 @@ Im Live-Block, big endian:
 
 | Byte | Inhalt |
 |---|---|
-| 0·1, 2·3, 4·5 | Strom Kanal 1–3, roh |
+| 0·1, 2·3, 4·5 | Strom Kanal 1–3, roh (6·7: Kanal 4 beim 100-A-TS1600) |
 | 10·11 | Ausgangsspannung, roh |
 | 12·13 | Eingangsspannung, roh |
 | 18, 20 | MOSFET-Temperaturen, vorzeichenbehaftet |
@@ -993,6 +1013,26 @@ damit SetupHelper sie nicht auf jedes GX-Gerät kopiert. Der Wandler regelt bei 
 zurück, ein langsam laufender Lüfter hält den Ladestrom in einem warmen Schacht also oben
 und macht die Temperaturwerte von oben erst richtig interessant. Für den Treiber wird sie
 nicht gebraucht.
+
+### TS1600, Generation mit 100 A
+
+Ein TS1600 mit Firmware 25-06-19 (das 100-A-Gerät) trägt seine Kalibrierung nicht dort,
+wo die älteren Typen sie haben: Die Faktorbytes von `FE 11 1F E0` lesen `ff` (nie
+beschrieben), ebenso das Chip-Byte von `FE 11 1F F5`. Der Live-Block hat vier
+Kanalwörter (Byte 0–7) statt drei. Ein Kanal, der nicht arbeitet, liest 5; die Kanäle,
+die Strom führen, lesen um 185. Der Wandler schaltet Kanäle zu, statt den Strom pro
+Kanal zu erhöhen: einer bei 8 A, zwei bei 18 A, alle vier bei 35 A.
+
+Der Treiber liest genau diese Kombination (Typ und Firmware) mit vier Kanälen und
+0,1726 A pro Zählschritt, die Nullpunkte stammen von der Kalibrierseite (Byte 41–44).
+Der Faktor ist empirisch: ein Gerät, am 9. Oktober 2026 gegen einen SmartShunt gemessen,
+die übrigen Lasten einzeln erfasst — 8,3, 18,6 und 35,5 A am Shunt gegen 8,1, 18,6 und
+35,6 A vom Treiber, etwa 2 %. Ob TSConfig denselben Wert benutzt und woher es seinen
+Faktor nimmt, ist nicht bekannt. Jedes andere Gerät, dessen Faktorbytes `ff` lesen,
+bekommt keinen Strom und keine Leistung, solange es wandelt (in Ruhe: 0), und sagt das
+im Log, statt eine Zahl aus 0,255 zu erfinden. Bei einem zweiten Gerät braucht man zur
+Prüfung des Faktors die Zeile `raw calibration bytes` beim Start und die Zeilen
+`raw block` (siehe Fehlersuche).
 
 ### Geprüft mit
 

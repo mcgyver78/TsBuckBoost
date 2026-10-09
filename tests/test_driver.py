@@ -113,6 +113,29 @@ class FakeConverter(object):
         return b""
 
 
+# A TS1600 of the 100 A generation, firmware 25-06-19, read on einstein on
+# 9 October 2026: factor bytes erased, four channel words in the live block.
+# The live blocks are three of the logged "raw block" lines, with the shunt
+# reference taken at the same time (see changes, v1.25).
+CAL_100A = bytes.fromhex(
+    "85004400008085123a010a0101017607030b02890001c90014000001550a05f00001020103"
+    "000000008583838684" "4b05140c0303030301a6070289080800fbff")
+BLOCK_100A_35A = bytes.fromhex("00b600b800b900b80004036e01c50001005a1c1a2601")
+BLOCK_100A_18A = bytes.fromhex("00ba00ba000400040004036101cd0001005a18192501")
+BLOCK_100A_8A = bytes.fromhex("00b40005000400040004036001cc0001005a1c1d2101")
+BLOCK_100A_OFF = bytes.fromhex("00050005000500050005035601d3000100cf1a1b1a20")
+
+
+class Ts100A(FakeConverter):
+    def __init__(self, dev_id=85, firmware=b"25-06-19"):
+        FakeConverter.__init__(self, dev_id)
+        self.memory[(0x1F, 0xF5)] = bytes([0xFF])
+        self.memory[(0x1F, 0xE0)] = bytes([0xFF] * 14 + [0x44, 0x07])
+        self.memory[(0x1F, 0x2A)] = CAL_100A
+        self.memory[(0x00, 0xD0)] = firmware
+        self.block = BLOCK_100A_35A
+
+
 class Talker(FakeConverter):
     """A foreign device that sends on its own, like a GPS."""
 
@@ -864,6 +887,89 @@ class RawLog(DriverTest):
         self.poll(drv, 3)
         for _port, frame in self.world.frames:
             self.assertIn(frame[1], (0x11, 0xD0, 0xCF))
+
+
+class ErasedFactors(DriverTest):
+    def running(self, conv, energy=None):
+        if energy is not None:
+            self.world.store["/Settings/Devices/tsbuckboost/EnergyOut"] = energy
+        self.conv = conv
+        return self.driver(self.add_port("A", conv))
+
+    def channels(self, drv):
+        return [drv.svc["/Current/Channel%d" % k] for k in (1, 2, 3, 4)]
+
+    def test_the_fixture_is_the_page_that_was_read(self):
+        self.assertEqual(len(CAL_100A), 64)
+        self.assertEqual(list(CAL_100A[41:46]), [133, 131, 131, 134, 132])
+
+    def test_the_measured_unit_reads_four_channels_at_0_1726(self):
+        drv = self.running(Ts100A())
+        self.assertEqual(drv.conv.channels, 4)
+        self.assertEqual(drv.conv.offsets, [133, 131, 131, 134])
+        for block, current, channels in (
+                (BLOCK_100A_35A, 35.56, [8.46, 9.15, 9.32, 8.63]),    # shunt 35.5 A
+                (BLOCK_100A_18A, 18.64, [9.15, 9.49, 0, 0]),          # shunt 18.6 A
+                (BLOCK_100A_8A, 8.11, [8.11, 0, 0, 0])):              # shunt 8.3 A
+            self.conv.block = block
+            self.poll(drv)
+            self.assertAlmostEqual(drv.svc["/Dc/0/Current"], current, places=2)
+            for got, want in zip(self.channels(drv), channels):
+                self.assertAlmostEqual(got, want, places=2)
+
+    def test_the_unit_is_told_to_the_log(self):
+        self.running(Ts100A())
+        self.assertTrue(self.logged("using 0.1726 A per count and 4 channels"))
+
+    def test_at_rest_the_current_is_zero(self):
+        drv = self.running(Ts100A())
+        self.conv.block = BLOCK_100A_OFF
+        self.poll(drv)
+        self.assertEqual(drv.svc["/Dc/0/Current"], 0)
+        self.assertEqual(self.channels(drv), [0, 0, 0, 0])
+
+    def test_the_profile_needs_the_fourth_zero_point(self):
+        conv = Ts100A()
+        conv.cal_answers = {0x40: 44, 0x30: 0}
+        with self.assertRaises(IOError):
+            self.running(conv)
+
+    def test_the_energy_counter_counts_with_the_measured_values(self):
+        drv = self.running(Ts100A(), energy=1.0)
+        self.poll(drv, 100)                           # 200 s at 35.56 A, 26.963 V
+        self.assertAlmostEqual(drv.svc["/Dc/0/Power"], 958.8, places=1)
+        self.assertGreater(drv.energy, 1.05)          # 99 intervals of 2 s: +0.0527 kWh
+        self.assertLess(drv.energy, 1.06)
+
+    def test_another_firmware_gets_no_current(self):
+        drv = self.running(Ts100A(firmware=b"26-01-01"), energy=1.0)
+        self.assertTrue(self.logged("has no measured values"))
+        self.poll(drv, 100)
+        self.assertIsNone(drv.svc["/Dc/0/Current"])
+        self.assertIsNone(drv.svc["/Dc/0/Power"])
+        self.assertEqual(self.channels(drv), [None] * 4)
+        self.assertAlmostEqual(drv.svc["/Dc/0/Voltage"], 26.96, places=1)
+        self.assertEqual(drv.svc["/History/EnergyOut"], 1.0)
+
+    def test_another_type_gets_no_current(self):
+        drv = self.running(Ts100A(dev_id=89))          # TS800C2, erased as well
+        self.poll(drv)
+        self.assertIsNone(drv.svc["/Dc/0/Current"])
+        self.assertIsNone(drv.svc["/Dc/0/Power"])
+
+    def test_without_a_current_it_is_still_zero_at_rest(self):
+        drv = self.running(Ts100A(firmware=b"26-01-01"))
+        self.conv.block = BLOCK_100A_OFF
+        self.poll(drv)
+        self.assertEqual(drv.svc["/Dc/0/Current"], 0)
+        self.assertEqual(drv.svc["/Dc/0/Power"], 0)
+        self.assertEqual(self.channels(drv), [0, 0, 0, None])
+
+    def test_a_calibrated_type_is_not_touched(self):
+        drv = self.running(FakeConverter())
+        self.poll(drv)
+        self.assertAlmostEqual(drv.svc["/Dc/0/Current"], 27.0, places=2)
+        self.assertEqual(self.channels(drv), [9.0, 9.0, 9.0, None])
 
 
 class Aux(DriverTest):
